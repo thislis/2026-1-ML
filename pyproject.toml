@@ -1,0 +1,94 @@
+[project]
+name = "meld-emotion"
+version = "0.1.0"
+description = "Concept-Guided and Multimodal Emotion Recognition on MELD (CSE363 final project)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+text = ["scikit-learn>=1.4", "sentence-transformers>=2.6"]
+audio = ["librosa>=0.10", "soundfile>=0.12"]
+video = ["opencv-python>=4.9", "mediapipe>=0.10"]
+all = ["meld-emotion[text,audio,video]"]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "mypy>=1.10",
+    "types-PyYAML>=6.0",
+]
+
+[project.scripts]
+meld-emotion = "meld_emotion.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/meld_emotion"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",   # pycodestyle + pyflakes
+    "I",             # isort
+    "UP",            # pyupgrade
+    "B",             # bugbear
+    "C4",            # comprehensions
+    "SIM",           # simplify
+    "RUF",           # ruff-specific
+]
+ignore = [
+    "E501",    # line length handled by formatter
+    "RUF022",  # __all__ 는 의미 단위로 그룹화(알파벳 정렬 강제 안 함)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+disallow_any_generics = true
+no_implicit_reexport = true
+files = ["src", "tests"]
+
+# Heavy optional libraries have no type stubs in the base env.
+[[tool.mypy.overrides]]
+module = [
+    "sklearn.*",
+    "librosa.*",
+    "soundfile.*",
+    "cv2.*",
+    "mediapipe.*",
+    "sentence_transformers.*",
+]
+ignore_missing_imports = true
+
+# Tests: keep bodies type-checked but don't force annotating pytest fixture params.
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_calls = false
+disallow_any_generics = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+filterwarnings = [
+    # Placeholder components emit RuntimeWarning by design; keep them visible but non-fatal.
+    "default",
+]

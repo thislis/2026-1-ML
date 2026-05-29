@@ -1,0 +1,259 @@
+"""구성 루트(composition root): 설정 → 구체 컴포넌트 연결.
+
+DIP 의 핵심. 오직 이 모듈만이 모든 구체 구현을 import 하고, 설정 dataclass 를 보고 알맞은
+객체를 생성해 :class:`ExperimentRunner` 로 조립한다. 새 컴포넌트를 추가하려면 여기 분기를
+한 줄 더하고(설정→구체), 설정 dataclass 와 레지스트리 등록을 갖추면 된다.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Sequence
+
+from meld_emotion.config.schema import (
+    AudioConceptConfig,
+    BowTextConfig,
+    CacheConfig,
+    CombinerConfig,
+    ConsoleReporterConfig,
+    CounterfactualConfig,
+    DashboardReporterConfig,
+    DatasetConfig,
+    DiskCacheConfig,
+    EarlyFusionConfig,
+    EstimatorConfig,
+    ExperimentConfig,
+    ExplainerConfig,
+    ExtractorConfig,
+    JsonReporterConfig,
+    LateFusionConfig,
+    LogRegConfig,
+    MajorityConfig,
+    MeanCombinerConfig,
+    MeldConfig,
+    MemoryCacheConfig,
+    MfccConfig,
+    ModalityAblationConfig,
+    ModelConfig,
+    NearestCentroidConfig,
+    NullCacheConfig,
+    PermutationConfig,
+    RandomEstimatorConfig,
+    ReporterConfig,
+    SentenceEmbeddingConfig,
+    StackingCombinerConfig,
+    SvmConfig,
+    SyntheticConfig,
+    TextConceptConfig,
+    TfidfConfig,
+    VideoConceptConfig,
+    VisualCueConfig,
+    WeightedCombinerConfig,
+)
+from meld_emotion.core.protocols import (
+    Classifier,
+    DatasetSource,
+    Estimator,
+    Explainer,
+    FeatureCache,
+    FeatureExtractor,
+    Metric,
+    Reporter,
+)
+from meld_emotion.core.types import Emotion
+from meld_emotion.data.labels import EmotionLabelEncoder
+from meld_emotion.data.meld import MeldDatasetSource
+from meld_emotion.data.synthetic import SyntheticDatasetSource
+from meld_emotion.evaluation.evaluator import Evaluator
+from meld_emotion.evaluation.metrics import METRIC_REGISTRY
+from meld_emotion.evaluation.robustness import RobustnessEvaluator
+from meld_emotion.explain.counterfactual import CounterfactualExplainer
+from meld_emotion.explain.modality_contribution import ModalityAblationExplainer
+from meld_emotion.explain.permutation import PermutationImportanceExplainer
+from meld_emotion.features.audio import AudioConceptExtractor, MfccAcousticExtractor
+from meld_emotion.features.text import (
+    BowTextExtractor,
+    SentenceEmbeddingExtractor,
+    TextConceptExtractor,
+    TfidfTextExtractor,
+)
+from meld_emotion.features.video import VideoConceptExtractor, VisualCueExtractor
+from meld_emotion.fusion.combiners import (
+    MeanCombiner,
+    ProbabilityCombiner,
+    StackingCombiner,
+    WeightedCombiner,
+)
+from meld_emotion.fusion.early import EarlyFusionClassifier
+from meld_emotion.fusion.late import LateFusionClassifier
+from meld_emotion.fusion.masking import ModalityScenario, get_scenario
+from meld_emotion.models.baselines import (
+    MajorityClassEstimator,
+    NearestCentroidEstimator,
+    RandomEstimator,
+)
+from meld_emotion.models.sklearn_estimators import (
+    LogisticRegressionEstimator,
+    SvmEstimator,
+)
+from meld_emotion.pipeline.cache import (
+    DiskFeatureCache,
+    InMemoryFeatureCache,
+    NullFeatureCache,
+)
+from meld_emotion.pipeline.feature_pipeline import FeaturePipeline
+from meld_emotion.pipeline.runner import ExperimentRunner
+from meld_emotion.reporting.report import (
+    ConsoleReporter,
+    DashboardExporter,
+    JsonReporter,
+)
+
+
+def build_dataset(config: DatasetConfig) -> DatasetSource:
+    if isinstance(config, SyntheticConfig):
+        return SyntheticDatasetSource(
+            n_train=config.n_train,
+            n_dev=config.n_dev,
+            n_test=config.n_test,
+            seed=config.seed,
+            with_audio=config.with_audio,
+            with_video=config.with_video,
+            missing_rate=config.missing_rate,
+        )
+    if isinstance(config, MeldConfig):
+        return MeldDatasetSource(
+            root=config.root,
+            csv_train=config.csv_train,
+            csv_dev=config.csv_dev,
+            csv_test=config.csv_test,
+            audio_subdir=config.audio_subdir,
+            video_subdir=config.video_subdir,
+        )
+    raise ValueError(f"알 수 없는 데이터셋 설정: {type(config).__name__}")
+
+
+def build_extractor(config: ExtractorConfig) -> FeatureExtractor:
+    if isinstance(config, TextConceptConfig):
+        return TextConceptExtractor()
+    if isinstance(config, BowTextConfig):
+        return BowTextExtractor(n_features=config.n_features, lowercase=config.lowercase)
+    if isinstance(config, TfidfConfig):
+        return TfidfTextExtractor(max_features=config.max_features, ngram_max=config.ngram_max)
+    if isinstance(config, SentenceEmbeddingConfig):
+        return SentenceEmbeddingExtractor(model_name=config.model_name, dim=config.dim)
+    if isinstance(config, AudioConceptConfig):
+        return AudioConceptExtractor()
+    if isinstance(config, MfccConfig):
+        return MfccAcousticExtractor(n_mfcc=config.n_mfcc)
+    if isinstance(config, VideoConceptConfig):
+        return VideoConceptExtractor()
+    if isinstance(config, VisualCueConfig):
+        return VisualCueExtractor(dim=config.dim)
+    raise ValueError(f"알 수 없는 추출기 설정: {type(config).__name__}")
+
+
+def build_estimator_factory(config: EstimatorConfig) -> Callable[[], Estimator]:
+    if isinstance(config, MajorityConfig):
+        return lambda: MajorityClassEstimator()
+    if isinstance(config, RandomEstimatorConfig):
+        return lambda: RandomEstimator(seed=config.seed)
+    if isinstance(config, NearestCentroidConfig):
+        return lambda: NearestCentroidEstimator(temperature=config.temperature)
+    if isinstance(config, SvmConfig):
+        return lambda: SvmEstimator(C=config.C, kernel=config.kernel)
+    if isinstance(config, LogRegConfig):
+        return lambda: LogisticRegressionEstimator(C=config.C, max_iter=config.max_iter)
+    raise ValueError(f"알 수 없는 학습기 설정: {type(config).__name__}")
+
+
+def build_combiner(config: CombinerConfig) -> ProbabilityCombiner:
+    if isinstance(config, MeanCombinerConfig):
+        return MeanCombiner()
+    if isinstance(config, WeightedCombinerConfig):
+        return WeightedCombiner(weights=config.weights)
+    if isinstance(config, StackingCombinerConfig):
+        return StackingCombiner()
+    raise ValueError(f"알 수 없는 결합기 설정: {type(config).__name__}")
+
+
+def build_classifier(config: ModelConfig, classes: tuple[Emotion, ...]) -> Classifier:
+    if isinstance(config, EarlyFusionConfig):
+        return EarlyFusionClassifier(
+            build_estimator_factory(config.base), classes, use_concepts=config.use_concepts
+        )
+    if isinstance(config, LateFusionConfig):
+        return LateFusionClassifier(
+            build_estimator_factory(config.base), build_combiner(config.combiner), classes
+        )
+    raise ValueError(f"알 수 없는 모델 설정: {type(config).__name__}")
+
+
+def build_metric(name: str) -> Metric:
+    metric = METRIC_REGISTRY.create(name)
+    assert isinstance(metric, Metric)
+    return metric
+
+
+def build_explainer(config: ExplainerConfig) -> Explainer:
+    if isinstance(config, PermutationConfig):
+        return PermutationImportanceExplainer(
+            metric=build_metric(config.metric),
+            n_repeats=config.n_repeats,
+            seed=config.seed,
+            top_k=config.top_k,
+        )
+    if isinstance(config, ModalityAblationConfig):
+        return ModalityAblationExplainer(metric=build_metric(config.metric))
+    if isinstance(config, CounterfactualConfig):
+        return CounterfactualExplainer(top_k=config.top_k, sample_limit=config.sample_limit)
+    raise ValueError(f"알 수 없는 설명기 설정: {type(config).__name__}")
+
+
+def build_cache(config: CacheConfig) -> FeatureCache:
+    if isinstance(config, MemoryCacheConfig):
+        return InMemoryFeatureCache()
+    if isinstance(config, NullCacheConfig):
+        return NullFeatureCache()
+    if isinstance(config, DiskCacheConfig):
+        return DiskFeatureCache(path=config.path)
+    raise ValueError(f"알 수 없는 캐시 설정: {type(config).__name__}")
+
+
+def build_reporter(config: ReporterConfig) -> Reporter:
+    if isinstance(config, ConsoleReporterConfig):
+        return ConsoleReporter()
+    if isinstance(config, JsonReporterConfig):
+        return JsonReporter(path=config.path)
+    if isinstance(config, DashboardReporterConfig):
+        return DashboardExporter(path=config.path)
+    raise ValueError(f"알 수 없는 리포터 설정: {type(config).__name__}")
+
+
+def build_scenarios(names: Sequence[str]) -> list[ModalityScenario]:
+    return [get_scenario(name) for name in names]
+
+
+def build_experiment(config: ExperimentConfig) -> ExperimentRunner:
+    """실험 설정으로부터 완전히 연결된 :class:`ExperimentRunner` 를 만든다."""
+
+    encoder = EmotionLabelEncoder()
+    extractors = [build_extractor(e) for e in config.extractors]
+    feature_pipeline = FeaturePipeline(extractors, build_cache(config.cache))
+    classifier = build_classifier(config.model, encoder.classes)
+
+    metrics = [build_metric(name) for name in config.evaluation.metrics]
+    evaluator = Evaluator(metrics, confusion=config.evaluation.confusion)
+    scenarios = build_scenarios(config.evaluation.scenarios)
+    robustness = RobustnessEvaluator(evaluator, scenarios) if scenarios else None
+
+    return ExperimentRunner(
+        name=config.name,
+        source=build_dataset(config.dataset),
+        feature_pipeline=feature_pipeline,
+        label_encoder=encoder,
+        classifier=classifier,
+        evaluator=evaluator,
+        robustness=robustness,
+        explainers=[build_explainer(x) for x in config.explainers],
+        reporters=[build_reporter(r) for r in config.reporters],
+    )
