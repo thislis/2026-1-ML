@@ -7,7 +7,10 @@
 ## 구성 (모두 완전 구현)
 
 - `permutation.py` — `PermutationImportanceExplainer`: 특징 열을 섞었을 때의 지표 하락으로
-  특징 기여도 측정(개념 특징의 기여 분석).
+  특징 기여도 측정(개념 특징의 기여 분석). 비용이 (대상 열 수 × `n_repeats`)번의 `predict`
+  이므로 기본 대상은 **개념(concept) 특징만**이다. 임베딩까지 포함하려면 설정에서
+  `kinds: [concept, embedding]` (또는 임베딩만) 으로 지정한다 — 단, 실제 TF-IDF 수천 차원에는
+  매우 느릴 수 있다.
 - `modality_contribution.py` — `ModalityAblationExplainer`: 모달리티 제거 시 성능 하락폭으로
   모달리티 기여도 측정(modality-wise contribution).
 - `counterfactual.py` — `CounterfactualExplainer`: 개념 특징을 평균값으로 되돌렸을 때 예측 확률

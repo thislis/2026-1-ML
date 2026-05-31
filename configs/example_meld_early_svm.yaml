@@ -8,6 +8,11 @@ name: meld_early_svm
 seed: 0
 output_dir: outputs
 
+# 학습 시 modality dropout(제안서): 각 (샘플, 모달리티)를 확률 p 로 가려 강건성을 키운다.
+dropout:
+  drop_prob: 0.3
+  seed: 0
+
 dataset:
   type: meld           # MeldDatasetSource (미구현) — data/MELD 의 *_sent_emo.csv 사용
   root: data/MELD
@@ -46,6 +51,7 @@ explainers:
     metric: macro_f1
     n_repeats: 5
     top_k: 20
+    kinds: [concept]   # 개념 특징만(기본). 임베딩 포함 시 [concept, embedding] — 고차원 TF-IDF 는 느림
   - type: counterfactual
     top_k: 5
     sample_limit: 20

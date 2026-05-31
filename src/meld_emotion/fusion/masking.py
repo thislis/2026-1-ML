@@ -87,6 +87,14 @@ class ModalityDropout:
         self._p = drop_prob
         self._seed = seed
 
+    @property
+    def drop_prob(self) -> float:
+        return self._p
+
+    @property
+    def seed(self) -> int:
+        return self._seed
+
     def fit(self, bundle: FeatureBundle) -> Self:
         return self
 

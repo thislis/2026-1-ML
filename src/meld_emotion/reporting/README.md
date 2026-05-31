@@ -21,3 +21,5 @@
 
 - JSON 직렬화 헬퍼 `_jsonable` 은 dataclass/numpy 배열/Enum/매핑을 재귀 변환한다. 새 결과
   타입을 추가해도 대개 그대로 직렬화된다.
+- 출력 경로는 각 리포터 설정의 `path` 가 결정한다. `ExperimentConfig.output_dir` 은 현재
+  리포터 경로에 자동 반영되지 않으므로, 저장 위치는 리포터의 `path` 에 직접 적는다.

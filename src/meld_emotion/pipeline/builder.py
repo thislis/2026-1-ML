@@ -25,6 +25,7 @@ from meld_emotion.config.schema import (
     ExplainerConfig,
     ExtractorConfig,
     JsonReporterConfig,
+    KnnConfig,
     LateFusionConfig,
     LogRegConfig,
     MajorityConfig,
@@ -38,6 +39,7 @@ from meld_emotion.config.schema import (
     NullCacheConfig,
     PermutationConfig,
     RandomEstimatorConfig,
+    RandomForestConfig,
     ReporterConfig,
     SentenceEmbeddingConfig,
     StackingCombinerConfig,
@@ -59,7 +61,7 @@ from meld_emotion.core.protocols import (
     Metric,
     Reporter,
 )
-from meld_emotion.core.types import Emotion
+from meld_emotion.core.types import Emotion, FeatureKind, Split
 from meld_emotion.data.labels import EmotionLabelEncoder
 from meld_emotion.data.meld import MeldDatasetSource
 from meld_emotion.data.synthetic import SyntheticDatasetSource
@@ -85,14 +87,16 @@ from meld_emotion.fusion.combiners import (
 )
 from meld_emotion.fusion.early import EarlyFusionClassifier
 from meld_emotion.fusion.late import LateFusionClassifier
-from meld_emotion.fusion.masking import ModalityScenario, get_scenario
+from meld_emotion.fusion.masking import ModalityDropout, ModalityScenario, get_scenario
 from meld_emotion.models.baselines import (
     MajorityClassEstimator,
     NearestCentroidEstimator,
     RandomEstimator,
 )
 from meld_emotion.models.sklearn_estimators import (
+    KnnEstimator,
     LogisticRegressionEstimator,
+    RandomForestEstimator,
     SvmEstimator,
 )
 from meld_emotion.pipeline.cache import (
@@ -152,17 +156,32 @@ def build_extractor(config: ExtractorConfig) -> FeatureExtractor:
     raise ValueError(f"알 수 없는 추출기 설정: {type(config).__name__}")
 
 
-def build_estimator_factory(config: EstimatorConfig) -> Callable[[], Estimator]:
+def build_estimator_factory(config: EstimatorConfig) -> Callable[[int], Estimator]:
+    """설정→학습기 팩토리. 팩토리는 전체 클래스 수(``n_classes``)를 받아 학습기를 만든다.
+
+    한 분할에 소수 클래스가 누락돼도 ``predict_proba`` 의 열 수가 전체 클래스 수로 고정되도록,
+    융합 분류기가 인코더의 클래스 수를 팩토리에 넘긴다(매 호출 새 인스턴스 — Late fusion 이
+    모달리티마다 하나씩 학습).
+    """
+
     if isinstance(config, MajorityConfig):
-        return lambda: MajorityClassEstimator()
+        return lambda n: MajorityClassEstimator(n_classes=n)
     if isinstance(config, RandomEstimatorConfig):
-        return lambda: RandomEstimator(seed=config.seed)
+        return lambda n: RandomEstimator(n_classes=n, seed=config.seed)
     if isinstance(config, NearestCentroidConfig):
-        return lambda: NearestCentroidEstimator(temperature=config.temperature)
+        return lambda n: NearestCentroidEstimator(n_classes=n, temperature=config.temperature)
     if isinstance(config, SvmConfig):
-        return lambda: SvmEstimator(C=config.C, kernel=config.kernel)
+        return lambda n: SvmEstimator(n_classes=n, C=config.C, kernel=config.kernel)
     if isinstance(config, LogRegConfig):
-        return lambda: LogisticRegressionEstimator(C=config.C, max_iter=config.max_iter)
+        return lambda n: LogisticRegressionEstimator(
+            n_classes=n, C=config.C, max_iter=config.max_iter
+        )
+    if isinstance(config, RandomForestConfig):
+        return lambda n: RandomForestEstimator(
+            n_classes=n, n_estimators=config.n_estimators, max_depth=config.max_depth
+        )
+    if isinstance(config, KnnConfig):
+        return lambda n: KnnEstimator(n_classes=n, n_neighbors=config.n_neighbors)
     raise ValueError(f"알 수 없는 학습기 설정: {type(config).__name__}")
 
 
@@ -201,6 +220,7 @@ def build_explainer(config: ExplainerConfig) -> Explainer:
             n_repeats=config.n_repeats,
             seed=config.seed,
             top_k=config.top_k,
+            kinds=tuple(FeatureKind(k) for k in config.kinds),
         )
     if isinstance(config, ModalityAblationConfig):
         return ModalityAblationExplainer(metric=build_metric(config.metric))
@@ -246,6 +266,12 @@ def build_experiment(config: ExperimentConfig) -> ExperimentRunner:
     scenarios = build_scenarios(config.evaluation.scenarios)
     robustness = RobustnessEvaluator(evaluator, scenarios) if scenarios else None
 
+    dropout = (
+        ModalityDropout(drop_prob=config.dropout.drop_prob, seed=config.dropout.seed)
+        if config.dropout is not None
+        else None
+    )
+
     return ExperimentRunner(
         name=config.name,
         source=build_dataset(config.dataset),
@@ -256,4 +282,7 @@ def build_experiment(config: ExperimentConfig) -> ExperimentRunner:
         robustness=robustness,
         explainers=[build_explainer(x) for x in config.explainers],
         reporters=[build_reporter(r) for r in config.reporters],
+        train_split=Split(config.train_split),
+        eval_split=Split(config.eval_split),
+        dropout=dropout,
     )

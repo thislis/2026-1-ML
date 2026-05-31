@@ -26,6 +26,7 @@ from meld_emotion.config.schema import (
     CacheConfig,
     CombinerConfig,
     DatasetConfig,
+    DropoutConfig,
     EstimatorConfig,
     EvaluationConfig,
     ExperimentConfig,
@@ -34,6 +35,7 @@ from meld_emotion.config.schema import (
     ModelConfig,
     ReporterConfig,
     StackingCombinerConfig,
+    SuiteConfig,
 )
 
 
@@ -79,6 +81,8 @@ def _model(data: Mapping[str, Any]) -> ModelConfig:
 
 def _explainer(data: Mapping[str, Any]) -> ExplainerConfig:
     name, rest = _pop_type(data)
+    if "kinds" in rest:  # YAML 리스트 → tuple (frozen dataclass 동등성/왕복 보존)
+        rest["kinds"] = tuple(rest["kinds"])
     return EXPLAINER_CONFIGS.create(name, **rest)
 
 
@@ -103,11 +107,20 @@ def _evaluation(data: Mapping[str, Any]) -> EvaluationConfig:
     return EvaluationConfig(**kwargs)
 
 
+def _dropout(data: Mapping[str, Any]) -> DropoutConfig:
+    kwargs: dict[str, Any] = {}
+    if "drop_prob" in data:
+        kwargs["drop_prob"] = float(data["drop_prob"])
+    if "seed" in data:
+        kwargs["seed"] = int(data["seed"])
+    return DropoutConfig(**kwargs)
+
+
 def from_dict(data: Mapping[str, Any]) -> ExperimentConfig:
     """평범한 dict(예: YAML 파싱 결과)를 :class:`ExperimentConfig` 로 복원한다."""
 
     kwargs: dict[str, Any] = {}
-    for scalar in ("name", "seed", "output_dir"):
+    for scalar in ("name", "seed", "output_dir", "train_split", "eval_split"):
         if scalar in data:
             kwargs[scalar] = data[scalar]
     if "dataset" in data:
@@ -116,6 +129,8 @@ def from_dict(data: Mapping[str, Any]) -> ExperimentConfig:
         kwargs["extractors"] = tuple(_extractor(e) for e in data["extractors"])
     if "model" in data:
         kwargs["model"] = _model(data["model"])
+    if data.get("dropout") is not None:
+        kwargs["dropout"] = _dropout(data["dropout"])
     if "evaluation" in data:
         kwargs["evaluation"] = _evaluation(data["evaluation"])
     if "explainers" in data:
@@ -168,3 +183,77 @@ def dump_config(config: ExperimentConfig, path: str | Path) -> None:
         yaml.safe_dump(to_dict(config), allow_unicode=True, sort_keys=False),
         encoding="utf-8",
     )
+
+
+# --- 다중 실험 비교(suite) -------------------------------------------------------
+
+
+def _deep_merge(base: Mapping[str, Any], override: Mapping[str, Any]) -> dict[str, Any]:
+    """``override`` 를 ``base`` 위에 재귀 병합한다(매핑은 깊게, 그 외/리스트는 덮어씀).
+
+    공유 설정(``base``)에 변형(experiment)별 차이만 얹는 데 쓴다. 규칙:
+
+    - 매핑끼리는 깊게 병합하되, **``type`` 식별자가 서로 다르면** 베이스의 키는 다른 종류의
+      것이므로 통째로 교체한다(예: base ``dataset.type=synthetic`` 위에 변형이
+      ``dataset.type=meld`` 를 지정하면 ``n_train`` 같은 synthetic 전용 키를 끌고 오지 않는다).
+    - 리스트(예: ``extractors``)는 부분 병합이 모호하므로 통째로 교체한다.
+    """
+
+    merged = dict(base)
+    for key, value in override.items():
+        existing = merged.get(key)
+        if (
+            isinstance(existing, Mapping)
+            and isinstance(value, Mapping)
+            and not _type_conflict(existing, value)
+        ):
+            merged[key] = _deep_merge(existing, value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _type_conflict(base: Mapping[str, Any], override: Mapping[str, Any]) -> bool:
+    """두 설정 매핑이 서로 다른 다형성 ``type`` 을 지정하는지 여부."""
+
+    return "type" in base and "type" in override and base["type"] != override["type"]
+
+
+def suite_from_dict(data: Mapping[str, Any]) -> SuiteConfig:
+    """suite dict(공유 ``base`` + ``experiments`` 목록)를 :class:`SuiteConfig` 로 복원한다."""
+
+    base = data.get("base", {})
+    if not isinstance(base, Mapping):
+        raise ValueError("suite 'base' 는 매핑이어야 합니다")
+    raw = data.get("experiments")
+    if not isinstance(raw, list) or not raw:
+        raise ValueError("suite 에는 비어 있지 않은 'experiments' 리스트가 필요합니다")
+
+    experiments: list[ExperimentConfig] = []
+    seen: set[str] = set()
+    for entry in raw:
+        if not isinstance(entry, Mapping):
+            raise ValueError(f"각 실험 항목은 매핑이어야 합니다: {entry!r}")
+        config = from_dict(_deep_merge(base, entry))
+        if config.name in seen:
+            raise ValueError(f"실험 이름이 중복됩니다: {config.name!r} (비교표 키가 충돌)")
+        seen.add(config.name)
+        experiments.append(config)
+
+    kwargs: dict[str, Any] = {"experiments": tuple(experiments)}
+    for scalar in ("name", "robustness_metric", "output_path"):
+        if scalar in data:
+            kwargs[scalar] = data[scalar]
+    if "metrics" in data:
+        kwargs["metrics"] = tuple(data["metrics"])
+    return SuiteConfig(**kwargs)
+
+
+def load_suite(path: str | Path) -> SuiteConfig:
+    """YAML 파일에서 비교 묶음(suite) 설정을 읽는다."""
+
+    text = Path(path).read_text(encoding="utf-8")
+    data = yaml.safe_load(text) or {}
+    if not isinstance(data, Mapping):
+        raise ValueError(f"suite 파일 최상위는 매핑이어야 합니다: {path}")
+    return suite_from_dict(data)

@@ -14,6 +14,7 @@ from meld_emotion.pipeline.cache import (
 )
 from meld_emotion.pipeline.feature_pipeline import FeaturePipeline
 from meld_emotion.pipeline.runner import ExperimentRunner
+from meld_emotion.pipeline.suite import SuiteRunner
 
 __all__ = [
     "DiskFeatureCache",
@@ -21,5 +22,6 @@ __all__ = [
     "FeaturePipeline",
     "InMemoryFeatureCache",
     "NullFeatureCache",
+    "SuiteRunner",
     "build_experiment",
 ]

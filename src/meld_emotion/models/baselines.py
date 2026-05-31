@@ -5,6 +5,12 @@
 
 레이블은 0..K-1 의 연속 정수라고 가정한다(:class:`EmotionLabelEncoder` 가 보장).
 ``predict_proba`` 는 (n_samples, K) 행렬을 반환하며 열 index 가 곧 클래스 index 이다.
+
+**클래스 수(K)는 학습 데이터가 아니라 전체 레이블 공간에서 와야 한다.** 한 분할에 소수 클래스
+(예: fear/disgust)가 누락되면 ``y.max()+1`` 로 추론한 K 가 7 보다 작아져 ``predict_proba`` 의
+열 수가 어긋난다(융합 분류기가 만드는 :class:`PredictionSet` 의 형상 검증 실패). 따라서 각
+학습기는 생성자 첫 인자로 ``n_classes`` 를 받아 이를 우선 사용하고, 주어지지 않은 경우에만
+데이터에서 추론한다(빌더는 항상 인코더의 클래스 수를 주입한다).
 """
 
 from __future__ import annotations
@@ -17,8 +23,17 @@ from meld_emotion.core.status import real
 from meld_emotion.core.types import FloatArray, IntArray
 
 
-def _n_classes(y: IntArray) -> int:
+def _infer_n_classes(y: IntArray) -> int:
     return int(y.max()) + 1 if y.size else 0
+
+
+def _resolve_n_classes(n_classes: int | None, y: IntArray) -> int:
+    """주입된 ``n_classes`` 를 우선하되, 데이터가 더 많은 클래스를 담고 있으면 그에 맞춘다."""
+
+    inferred = _infer_n_classes(y)
+    if n_classes is None:
+        return inferred
+    return max(n_classes, inferred)
 
 
 def _as_float(values: object) -> FloatArray:
@@ -33,12 +48,14 @@ def _as_int(values: object) -> IntArray:
 class MajorityClassEstimator:
     """항상 최빈 클래스를 예측. 다른 학습기 성능 비교의 하한선."""
 
-    def __init__(self) -> None:
+    def __init__(self, n_classes: int | None = None) -> None:
+        self._n_classes = n_classes
         self._proba: FloatArray = np.zeros(0, dtype=np.float64)
         self._majority: int = 0
 
     def fit(self, x: FloatArray, y: IntArray) -> Self:
-        counts = np.bincount(y, minlength=_n_classes(y)).astype(np.float64)
+        k = _resolve_n_classes(self._n_classes, y)
+        counts = np.bincount(y, minlength=k).astype(np.float64)
         total = counts.sum()
         self._proba = counts / total if total > 0 else counts
         self._majority = int(np.argmax(counts)) if counts.size else 0
@@ -55,12 +72,13 @@ class MajorityClassEstimator:
 class RandomEstimator:
     """시드 기반 무작위 예측. 정상성/형상 검증용 기준선."""
 
-    def __init__(self, seed: int = 0) -> None:
+    def __init__(self, n_classes: int | None = None, seed: int = 0) -> None:
+        self._n_classes = n_classes
         self._seed = seed
         self._k = 0
 
     def fit(self, x: FloatArray, y: IntArray) -> Self:
-        self._k = _n_classes(y)
+        self._k = _resolve_n_classes(self._n_classes, y)
         return self
 
     def predict_proba(self, x: FloatArray) -> FloatArray:
@@ -81,9 +99,10 @@ class NearestCentroidEstimator:
     합성 데이터에서도 실제 학습 신호를 보여 준다.
     """
 
-    def __init__(self, temperature: float = 1.0) -> None:
+    def __init__(self, n_classes: int | None = None, temperature: float = 1.0) -> None:
         if temperature <= 0:
             raise ValueError("temperature 는 양수여야 합니다")
+        self._n_classes = n_classes
         self._temperature = temperature
         self._mean: FloatArray = np.zeros(0)
         self._std: FloatArray = np.ones(0)
@@ -92,7 +111,7 @@ class NearestCentroidEstimator:
 
     def fit(self, x: FloatArray, y: IntArray) -> Self:
         x = np.asarray(x, dtype=np.float64)
-        self._k = _n_classes(y)
+        self._k = _resolve_n_classes(self._n_classes, y)
         self._mean = x.mean(axis=0)
         self._std = x.std(axis=0)
         self._std[self._std == 0.0] = 1.0

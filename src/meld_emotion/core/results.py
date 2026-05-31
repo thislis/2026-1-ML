@@ -124,3 +124,37 @@ class ExperimentResult:
     robustness: RobustnessReport | None = None
     explanation: ExplanationReport | None = None
     metadata: Mapping[str, str] = field(default_factory=dict)
+
+
+# --- 다중 실험 비교(suite) -------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ExperimentOutcome:
+    """비교 묶음 안에서 한 실험의 결과 또는 실패 사유.
+
+    일부 변형이 미구현 경계(``@unimplemented``)에 닿아도 비교 전체를 멈추지 않기 위해,
+    성공 시 ``result``, 실패 시 ``error`` (타입+메시지 한 줄) 중 하나만 채운다.
+    """
+
+    name: str
+    result: ExperimentResult | None = None
+    error: str | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.result is not None
+
+
+@dataclass(frozen=True)
+class ComparisonReport:
+    """여러 실험을 함께 실행한 비교 결과 (비교 리포터가 직렬화하는 최상위 객체)."""
+
+    name: str
+    outcomes: tuple[ExperimentOutcome, ...]
+
+    def successful(self) -> tuple[ExperimentOutcome, ...]:
+        return tuple(o for o in self.outcomes if o.result is not None)
+
+    def failed(self) -> tuple[ExperimentOutcome, ...]:
+        return tuple(o for o in self.outcomes if o.result is None)

@@ -9,14 +9,19 @@ from __future__ import annotations
 
 import dataclasses
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from meld_emotion.core.results import EvaluationReport, ExperimentResult
+from meld_emotion.core.results import (
+    ComparisonReport,
+    EvaluationReport,
+    ExperimentOutcome,
+    ExperimentResult,
+)
 from meld_emotion.core.status import note_placeholder_use, placeholder, real
 
 
@@ -119,3 +124,107 @@ class DashboardExporter:
         }
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _render_table(headers: Sequence[str], rows: Sequence[Sequence[str]]) -> list[str]:
+    """헤더/행을 열 폭에 맞춰 정렬한 표 라인들로 만든다."""
+
+    widths = [len(h) for h in headers]
+    for row in rows:
+        for i, cell in enumerate(row):
+            widths[i] = max(widths[i], len(cell))
+
+    def _fmt(cells: Sequence[str]) -> str:
+        return "  " + "  ".join(cell.ljust(widths[i]) for i, cell in enumerate(cells))
+
+    return [_fmt(headers), *[_fmt(row) for row in rows]]
+
+
+@real
+class ComparisonReporter:
+    """여러 실험의 :class:`ComparisonReport` 를 콘솔 표 + JSON 으로 내보낸다.
+
+    :class:`Reporter` Protocol(단일 ``ExperimentResult``)과는 입력 타입이 다른, 비교 전용
+    리포터이다(파이프라인 단계에 주입되지 않고 :class:`SuiteRunner` 결과를 받는다).
+    """
+
+    def __init__(
+        self,
+        metrics: tuple[str, ...] = ("accuracy", "macro_f1", "weighted_f1"),
+        robustness_metric: str = "macro_f1",
+        path: str = "outputs/comparison.json",
+    ) -> None:
+        self._metrics = metrics
+        self._robustness_metric = robustness_metric
+        self._path = Path(path)
+
+    def save(self, report: ComparisonReport) -> None:
+        print(self.format(report))
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._path.write_text(
+            json.dumps(_jsonable(report), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def format(self, report: ComparisonReport) -> str:
+        ok = list(report.successful())
+        lines: list[str] = [f"=== Suite: {report.name} ({len(ok)}/{len(report.outcomes)} ok) ==="]
+
+        lines.append("[Metrics]")
+        lines.extend(self._metrics_table(ok))
+
+        robustness = self._robustness_table(ok)
+        if robustness:
+            lines.append(f"[Robustness: {self._robustness_metric} by scenario]")
+            lines.extend(robustness)
+
+        failed = report.failed()
+        if failed:
+            lines.append("[Failed]")
+            lines.extend(f"  {o.name}: {o.error}" for o in failed)
+        return "\n".join(lines)
+
+    def _metrics_table(self, outcomes: Sequence[ExperimentOutcome]) -> list[str]:
+        headers = ["experiment", *self._metrics]
+        rows: list[list[str]] = []
+        for outcome in outcomes:
+            result = outcome.result
+            if result is None:
+                continue
+            cells = [outcome.name]
+            for metric_name in self._metrics:
+                found = result.evaluation.metric(metric_name)
+                cells.append(f"{found.value:.4f}" if found is not None else "-")
+            rows.append(cells)
+        return _render_table(headers, rows)
+
+    def _robustness_table(self, outcomes: Sequence[ExperimentOutcome]) -> list[str]:
+        scenarios: list[str] = []
+        for outcome in outcomes:
+            result = outcome.result
+            if result is None or result.robustness is None:
+                continue
+            for report in result.robustness.reports:
+                if report.scenario not in scenarios:
+                    scenarios.append(report.scenario)
+        if not scenarios:
+            return []
+
+        headers = ["experiment", *scenarios]
+        rows: list[list[str]] = []
+        for outcome in outcomes:
+            result = outcome.result
+            if result is None or result.robustness is None:
+                continue
+            by_scenario = {r.scenario: r for r in result.robustness.reports}
+            cells = [outcome.name]
+            for scenario in scenarios:
+                scenario_report = by_scenario.get(scenario)
+                found = (
+                    scenario_report.metric(self._robustness_metric)
+                    if scenario_report is not None
+                    else None
+                )
+                cells.append(f"{found.value:.4f}" if found is not None else "-")
+            rows.append(cells)
+        return _render_table(headers, rows)

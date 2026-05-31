@@ -163,12 +163,27 @@ class LogRegConfig(EstimatorConfig):
     max_iter: int = 1000
 
 
+@dataclass(frozen=True)
+class RandomForestConfig(EstimatorConfig):
+    type: ClassVar[str] = "random_forest"
+    n_estimators: int = 200
+    max_depth: int | None = None
+
+
+@dataclass(frozen=True)
+class KnnConfig(EstimatorConfig):
+    type: ClassVar[str] = "knn"
+    n_neighbors: int = 5
+
+
 for _est in (
     MajorityConfig,
     RandomEstimatorConfig,
     NearestCentroidConfig,
     SvmConfig,
     LogRegConfig,
+    RandomForestConfig,
+    KnnConfig,
 ):
     ESTIMATOR_CONFIGS.add(_est.type, _est)
 
@@ -232,6 +247,15 @@ class EvaluationConfig:
     scenarios: tuple[str, ...] = ("full",)
 
 
+# --- 학습 시 모달리티 드롭아웃 --------------------------------------------------
+@dataclass(frozen=True)
+class DropoutConfig:
+    """학습 시 modality dropout 증강 설정(제안서). ``None`` 이면 적용하지 않는다."""
+
+    drop_prob: float = 0.3
+    seed: int = 0
+
+
 # --- 설명(Explainer) -----------------------------------------------------------
 @dataclass(frozen=True)
 class ExplainerConfig:
@@ -245,6 +269,7 @@ class PermutationConfig(ExplainerConfig):
     n_repeats: int = 5
     seed: int = 0
     top_k: int = 20
+    kinds: tuple[str, ...] = ("concept",)  # 중요도 대상 특징 종류 (기본: 개념만; 비용 절감)
 
 
 @dataclass(frozen=True)
@@ -325,12 +350,32 @@ class ExperimentConfig:
     name: str = "experiment"
     seed: int = 0
     output_dir: str = "outputs"
+    train_split: str = "train"  # 학습에 사용할 분할
+    eval_split: str = "test"  # 평가·강건성·설명을 수행할 분할 (예: dev 로 바꿔 개발셋 평가)
     dataset: DatasetConfig = field(default_factory=lambda: SyntheticConfig())
     extractors: tuple[ExtractorConfig, ...] = field(default_factory=lambda: (TextConceptConfig(),))
     model: ModelConfig = field(default_factory=lambda: EarlyFusionConfig())
+    dropout: DropoutConfig | None = None  # 학습 시 modality dropout (None = 미적용)
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
     explainers: tuple[ExplainerConfig, ...] = ()
     cache: CacheConfig = field(default_factory=lambda: MemoryCacheConfig())
     reporters: tuple[ReporterConfig, ...] = field(
         default_factory=lambda: (ConsoleReporterConfig(),)
     )
+
+
+# --- 다중 실험 비교(suite) 설정 -------------------------------------------------
+@dataclass(frozen=True)
+class SuiteConfig:
+    """여러 :class:`ExperimentConfig` 를 함께 실행·비교하기 위한 묶음 설정.
+
+    ``experiments`` 는 (보통 ``base`` 와 병합되어) 완성된 실험 설정들이며, ``metrics`` 는
+    비교표에 스칼라로 나열할 지표 이름들이다. YAML 경계 처리는
+    :func:`meld_emotion.config.loader.load_suite` 가 담당한다.
+    """
+
+    name: str = "suite"
+    experiments: tuple[ExperimentConfig, ...] = ()
+    metrics: tuple[str, ...] = ("accuracy", "macro_f1", "weighted_f1")
+    robustness_metric: str = "macro_f1"
+    output_path: str = "outputs/comparison.json"

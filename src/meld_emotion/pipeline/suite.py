@@ -1,0 +1,45 @@
+"""다중 실험 비교 러너 (완전 구현) — 기존 파이프라인 위의 얇은 층.
+
+여러 :class:`ExperimentConfig` 를 받아 각각을 기존 :func:`build_experiment` 로 조립·실행하고,
+결과를 하나의 :class:`ComparisonReport` 로 모은다. 핵심 설계:
+
+- **아키텍처 비침습**: ``core`` 계약이나 ``builder``/``runner`` 를 건드리지 않는다. 단일 실험
+  실행 경로(``build_experiment(config).run()``)를 그대로 재사용한다.
+- **경계 내성(boundary-tolerant)**: 일부 변형이 미구현 경계(``@unimplemented``)에 닿아
+  예외를 던져도 비교 전체를 멈추지 않고, 그 변형만 실패로 기록한다(상태 주도 프로젝트와
+  자연스럽게 맞물린다 — 구현된 변형끼리 먼저 비교 가능).
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+
+from meld_emotion.config.schema import ExperimentConfig
+from meld_emotion.core.results import ComparisonReport, ExperimentOutcome
+from meld_emotion.core.status import real
+from meld_emotion.pipeline.builder import build_experiment
+
+
+@real
+class SuiteRunner:
+    """여러 실험을 실행해 비교 결과를 만든다."""
+
+    def __init__(self, name: str, configs: Sequence[ExperimentConfig]) -> None:
+        if not configs:
+            raise ValueError("비교할 실험이 최소 한 개 필요합니다")
+        self._name = name
+        self._configs = tuple(configs)
+
+    def run(self) -> ComparisonReport:
+        return ComparisonReport(
+            name=self._name,
+            outcomes=tuple(self._run_one(config) for config in self._configs),
+        )
+
+    @staticmethod
+    def _run_one(config: ExperimentConfig) -> ExperimentOutcome:
+        try:
+            result = build_experiment(config).run()
+        except Exception as exc:  # 미구현 경계 등은 해당 변형만 실패로 기록하고 계속 진행.
+            return ExperimentOutcome(name=config.name, error=f"{type(exc).__name__}: {exc}")
+        return ExperimentOutcome(name=config.name, result=result)

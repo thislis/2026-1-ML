@@ -13,9 +13,11 @@ import sys
 from collections.abc import Sequence
 
 # builder 를 import 하면 모든 구체 컴포넌트가 로드되어 상태 레지스트리가 채워진다.
-from meld_emotion.config.loader import load_config
+from meld_emotion.config.loader import load_config, load_suite
 from meld_emotion.core.status import ComponentStatus, iter_status
 from meld_emotion.pipeline import builder
+from meld_emotion.pipeline.suite import SuiteRunner
+from meld_emotion.reporting.report import ComparisonReporter
 
 
 def _force_utf8() -> None:
@@ -30,6 +32,17 @@ def _cmd_run(config_path: str) -> int:
     config = load_config(config_path)
     runner = builder.build_experiment(config)
     runner.run()
+    return 0
+
+
+def _cmd_compare(config_path: str) -> int:
+    suite = load_suite(config_path)
+    report = SuiteRunner(suite.name, suite.experiments).run()
+    ComparisonReporter(
+        metrics=suite.metrics,
+        robustness_metric=suite.robustness_metric,
+        path=suite.output_path,
+    ).save(report)
     return 0
 
 
@@ -69,6 +82,9 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser = sub.add_parser("run", help="YAML 설정으로 실험 실행")
     run_parser.add_argument("--config", required=True, help="실험 설정 YAML 경로")
 
+    compare_parser = sub.add_parser("compare", help="여러 실험을 실행하고 비교표 출력")
+    compare_parser.add_argument("--config", required=True, help="비교 묶음(suite) YAML 경로")
+
     sub.add_parser("status", help="컴포넌트 구현 상태 출력")
     return parser
 
@@ -78,6 +94,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "run":
         return _cmd_run(args.config)
+    if args.command == "compare":
+        return _cmd_compare(args.config)
     if args.command == "status":
         return _cmd_status()
     return 1

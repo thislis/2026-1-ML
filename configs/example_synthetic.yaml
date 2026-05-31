@@ -4,6 +4,13 @@ name: synthetic_early_centroid
 seed: 0
 output_dir: outputs
 
+# 선택: 학습/평가 분할과 학습 시 modality dropout(제안서). 주석을 풀면 적용된다.
+# train_split: train
+# eval_split: test
+# dropout:
+#   drop_prob: 0.3
+#   seed: 0
+
 dataset:
   type: synthetic
   n_train: 350

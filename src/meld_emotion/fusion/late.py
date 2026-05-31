@@ -26,7 +26,7 @@ class LateFusionClassifier:
 
     def __init__(
         self,
-        estimator_factory: Callable[[], Estimator],
+        estimator_factory: Callable[[int], Estimator],
         combiner: ProbabilityCombiner,
         classes: tuple[Emotion, ...],
     ) -> None:
@@ -47,7 +47,7 @@ class LateFusionClassifier:
         per_modality_train: dict[Modality, FloatArray] = {}
         for modality in bundle.modalities:
             design = self._design(bundle, modality)
-            estimator = self._factory().fit(design, y)
+            estimator = self._factory(len(self._classes)).fit(design, y)
             self._estimators[modality] = estimator
             per_modality_train[modality] = estimator.predict_proba(design)
         if not self._estimators:

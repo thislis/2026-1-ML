@@ -25,7 +25,7 @@ class EarlyFusionClassifier:
 
     def __init__(
         self,
-        estimator_factory: Callable[[], Estimator],
+        estimator_factory: Callable[[int], Estimator],
         classes: tuple[Emotion, ...],
         use_concepts: bool = True,
     ) -> None:
@@ -48,7 +48,7 @@ class EarlyFusionClassifier:
         return self._estimator
 
     def fit(self, bundle: FeatureBundle, y: IntArray) -> Self:
-        self._estimator = self._factory().fit(self._design(bundle), y)
+        self._estimator = self._factory(len(self._classes)).fit(self._design(bundle), y)
         return self
 
     def predict_proba(self, bundle: FeatureBundle) -> FloatArray:

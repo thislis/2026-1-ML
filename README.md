@@ -26,8 +26,9 @@ disgust)을 분류하고, **해석 가능한 개념 벡터** `c = [c_T, c_A, c_V
 ```bash
 uv sync --extra dev                                    # 환경 구성 (numpy + pytest + ruff + mypy)
 uv run meld-emotion run --config configs/example_synthetic.yaml   # 전체 파이프라인 즉시 실행
+uv run meld-emotion compare --config configs/example_suite.yaml   # 여러 실험 비교표(Early/Late 등)
 uv run meld-emotion status                             # 구현 상태(완료/임시/미구현) 표
-uv run pytest -q                                       # 단위 + end-to-end 테스트
+uv run python -m pytest -q                                       # 단위 + end-to-end 테스트
 uv run mypy src                                        # 정적 타입 검사 (strict)
 uv run ruff check .                                    # 린트
 ```
@@ -64,6 +65,18 @@ DatasetSource → FeaturePipeline(추출기들) → FeatureBundle
 기술할 수 있고, [pipeline/builder.py](src/meld_emotion/pipeline/builder.py) 가 설정을 구체
 객체로 연결하는 **유일한 구성 루트**다(다른 모듈은 구체 구현을 import 하지 않는다).
 
+세 층을 구분하면 어디를 고칠지 빨라진다:
+
+- **무엇을 돌릴까(선언)** → `ExperimentConfig`/YAML. 최상위 변수 목록은
+  [config/README.md](src/meld_emotion/config/README.md) 참고. 학습/평가 분할과 학습 시
+  modality dropout 도 여기서 켠다(`train_split`/`eval_split`/`dropout`).
+- **설정→객체 연결(조립)** → [pipeline/builder.py](src/meld_emotion/pipeline/builder.py).
+- **어떤 순서로 실행할까(절차)** → [pipeline/runner.py](src/meld_emotion/pipeline/runner.py)
+  `run()`. dev 기반 모델 선택·교차검증·다중 시드 같은 **절차 변경**은 여기서 한다.
+- **여러 실험을 한 번에 비교** → `meld-emotion compare`(suite). 공유 `base` + 변형 목록을
+  실행해 지표·강건성 비교표(콘솔+JSON)를 낸다. 일부 변형이 미구현 경계에 닿아도 나머지는
+  계속 비교된다. 형식은 [pipeline/README.md](src/meld_emotion/pipeline/README.md) 참고.
+
 ## 구현 상태와 확장
 
 - **무엇이 되어 있나**: `uv run meld-emotion status` 가 [core/status.py](src/meld_emotion/core/status.py)
@@ -73,3 +86,9 @@ DatasetSource → FeaturePipeline(추출기들) → FeatureBundle
   공통 절차는 (1) Protocol 을 만족하는 클래스 작성 → (2) [config/schema.py](src/meld_emotion/config/schema.py)
   에 설정 dataclass 추가·등록 → (3) [pipeline/builder.py](src/meld_emotion/pipeline/builder.py)
   에 설정→구체 연결 한 줄 추가.
+  - **예외(더 가벼움)**: 새 **지표**는 `METRIC_REGISTRY` 에 이름으로 등록만 하면 되고(빌더
+    분기 불필요), 새 **강건성 시나리오**는 [fusion/masking.py](src/meld_emotion/fusion/masking.py)
+    의 `SCENARIOS` 딕셔너리에 한 줄 추가하면 된다.
+  - **예외(한 단계 더)**: 다른 설정을 품는 **중첩 설정**(예: `model.base`, `late.combiner`,
+    `stacking.meta`)은 [config/loader.py](src/meld_emotion/config/loader.py) 에 재귀 복원도
+    추가해야 YAML 에서 읽힌다.

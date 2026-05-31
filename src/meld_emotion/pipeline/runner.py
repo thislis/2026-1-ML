@@ -92,6 +92,13 @@ class ExperimentRunner:
                 "classifier": type(self._classifier).__name__,
                 "n_train": str(len(train)),
                 "n_test": str(len(test)),
+                "train_split": self._train_split.value,
+                "eval_split": self._eval_split.value,
+                "dropout": (
+                    "none"
+                    if self._dropout is None
+                    else f"p={self._dropout.drop_prob}, seed={self._dropout.seed}"
+                ),
             },
         )
         for reporter in self._reporters:
