@@ -1,24 +1,64 @@
-# Python
+# Python bytecode / caches
 __pycache__/
 *.py[cod]
+*$py.class
+.cache/
+
+# Build / packaging outputs
+build/
+dist/
 *.egg-info/
+.eggs/
+*.egg
+pip-wheel-metadata/
+
+# Virtual environments / local dependency caches
+.venv/
+venv/
+env/
+ENV/
+.uv-cache/
+
+# Test, lint, type-check, coverage outputs
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
 
-# uv / venv
-.venv/
+# Jupyter
+.ipynb_checkpoints/
 
-# 실험 산출물 / 캐시
-outputs/
-.feature_cache/
+# Local environment / secrets
+.env
+.env.*
+!.env.example
 
-# 데이터셋 (대용량 — 저장소에 포함하지 않음)
-data/
+# Project data, experiment outputs, and model artifacts
+/data/
+/outputs/
+/.feature_cache/
+/artifacts/
+/checkpoints/
+/models/
+/logs/
+/mlruns/
+/wandb/
+*.log
 
-# OS / 에디터
+# OS / editor files
 .DS_Store
 Thumbs.db
+.idea/
+.vscode/
 
-# 일단 Agent용 문서는 빼 둠
-_docs/
+# Agent-only notes
+/_docs/
+
+# Data files (if not stored in a separate repository or storage)
+MELD.Raw.tar.gz
+MELD.Raw/
