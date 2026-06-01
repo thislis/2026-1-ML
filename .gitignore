@@ -58,3 +58,7 @@ Thumbs.db
 
 # Agent-only notes
 /_docs/
+
+# Data files (if not stored in a separate repository or storage)
+MELD.Raw.tar.gz
+MELD.Raw/
