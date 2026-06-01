@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# uv / venv
+.venv/
+
+# 실험 산출물 / 캐시
+outputs/
+.feature_cache/
+
+# 데이터셋 (대용량 — 저장소에 포함하지 않음)
+data/
+
+# OS / 에디터
+.DS_Store
+Thumbs.db
+
+# 일단 Agent용 문서는 빼 둠
+_docs/

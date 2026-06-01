@@ -1,0 +1,61 @@
+# 합성 데이터로 전체 파이프라인을 즉시 실행하는 예제 (외부 데이터/무거운 라이브러리 불필요).
+#   uv run meld-emotion run --config configs/example_synthetic.yaml
+name: synthetic_early_centroid
+seed: 0
+output_dir: outputs
+
+# 선택: 학습/평가 분할과 학습 시 modality dropout(제안서). 주석을 풀면 적용된다.
+# train_split: train
+# eval_split: test
+# dropout:
+#   drop_prob: 0.3
+#   seed: 0
+
+dataset:
+  type: synthetic
+  n_train: 350
+  n_dev: 70
+  n_test: 140
+  seed: 0
+  with_audio: true
+  with_video: true
+
+# 각 모달리티의 개념(concept) + 텍스트 BoW(embedding). 모두 완전 구현(numpy 전용).
+extractors:
+  - type: text_concepts
+  - type: text_bow
+    n_features: 64
+  - type: audio_concepts
+  - type: video_concepts
+
+# Early fusion + NearestCentroid (완전 구현 학습기).
+model:
+  type: early
+  base:
+    type: centroid
+    temperature: 1.0
+  use_concepts: true
+
+evaluation:
+  metrics: [accuracy, macro_f1, weighted_f1, per_class_recall]
+  confusion: true
+  scenarios: [full, text_only, audio_only, video_only, no_text, no_audio, no_video]
+
+explainers:
+  - type: modality_ablation
+    metric: macro_f1
+  - type: permutation
+    metric: macro_f1
+    n_repeats: 3
+    top_k: 10
+  - type: counterfactual
+    top_k: 3
+    sample_limit: 10
+
+cache:
+  type: memory
+
+reporters:
+  - type: console
+  - type: json
+    path: outputs/synthetic_result.json

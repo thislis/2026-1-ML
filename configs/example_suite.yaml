@@ -1,0 +1,45 @@
+# 여러 실험을 한 번에 실행하고 비교표를 출력하는 예제 (합성 데이터, 모두 완전 구현).
+#   uv run meld-emotion compare --config configs/example_suite.yaml
+#
+# 교수님 피드백의 Early/Late fusion 비교를 한 명령으로 수행한다. `base` 는 모든 변형이
+# 공유하는 설정이고, `experiments` 의 각 항목이 그 위에 차이만 덮어쓴다(깊은 병합).
+name: fusion_comparison
+metrics: [accuracy, macro_f1, weighted_f1]
+robustness_metric: macro_f1
+output_path: outputs/comparison.json
+
+base:
+  seed: 0
+  dataset:
+    type: synthetic
+    n_train: 350
+    n_dev: 70
+    n_test: 140
+  extractors:
+    - { type: text_concepts }
+    - { type: text_bow, n_features: 64 }
+    - { type: audio_concepts }
+    - { type: video_concepts }
+  evaluation:
+    metrics: [accuracy, macro_f1, weighted_f1, per_class_recall]
+    scenarios: [full, no_text, no_audio, no_video]
+  # 비교 러너가 집계표를 내므로 변형별 콘솔 출력은 끈다.
+  reporters: []
+
+experiments:
+  - name: early_centroid
+    model:
+      type: early
+      base: { type: centroid, temperature: 1.0 }
+      use_concepts: true
+
+  - name: late_centroid_mean
+    model:
+      type: late
+      base: { type: centroid, temperature: 1.0 }
+      combiner: { type: mean }
+
+  - name: early_majority
+    model:
+      type: early
+      base: { type: majority }

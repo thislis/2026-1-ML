@@ -1,0 +1,56 @@
+"""설정 dataclass ↔ YAML 왕복 변환."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from meld_emotion.config.loader import dump_config, from_dict, load_config, to_dict
+from meld_emotion.config.schema import (
+    EarlyFusionConfig,
+    ExperimentConfig,
+    LateFusionConfig,
+    MeanCombinerConfig,
+    MfccConfig,
+    SvmConfig,
+    SyntheticConfig,
+    TextConceptConfig,
+    TfidfConfig,
+)
+
+
+def _complex_config() -> ExperimentConfig:
+    return ExperimentConfig(
+        name="rt",
+        seed=1,
+        dataset=SyntheticConfig(n_train=10),
+        extractors=(TextConceptConfig(), TfidfConfig(max_features=100), MfccConfig(n_mfcc=5)),
+        model=EarlyFusionConfig(base=SvmConfig(C=2.0), use_concepts=False),
+    )
+
+
+def test_dict_roundtrip() -> None:
+    config = _complex_config()
+    assert from_dict(to_dict(config)) == config
+
+
+def test_late_fusion_roundtrip() -> None:
+    config = ExperimentConfig(
+        name="late",
+        model=LateFusionConfig(base=SvmConfig(), combiner=MeanCombinerConfig()),
+    )
+    assert from_dict(to_dict(config)) == config
+
+
+def test_yaml_file_roundtrip(tmp_path: Path) -> None:
+    config = _complex_config()
+    path = tmp_path / "exp.yaml"
+    dump_config(config, path)
+    assert load_config(path) == config
+
+
+def test_example_configs_load() -> None:
+    root = Path(__file__).resolve().parents[1] / "configs"
+    for name in ("example_synthetic.yaml", "example_meld_early_svm.yaml"):
+        config = load_config(root / name)
+        assert isinstance(config, ExperimentConfig)
+        assert config.name
