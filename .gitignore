@@ -18,6 +18,8 @@ venv/
 env/
 ENV/
 .uv-cache/
+.uv-python/
+.python-version
 
 # Test, lint, type-check, coverage outputs
 .pytest_cache/
