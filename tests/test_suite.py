@@ -81,7 +81,7 @@ def test_suite_runs_and_collects_results() -> None:
     assert acc is not None and acc.value > 0.5
 
 
-def test_suite_tolerates_unimplemented_variant() -> None:
+def test_suite_tolerates_failed_variant() -> None:
     data = {
         "base": {"dataset": _small_synth(), "reporters": []},
         "experiments": [
@@ -98,7 +98,7 @@ def test_suite_tolerates_unimplemented_variant() -> None:
     assert outcomes["ok"].ok
     assert not outcomes["boundary"].ok
     assert outcomes["boundary"].error is not None
-    assert "NotImplementedError" in outcomes["boundary"].error
+    assert "FileNotFoundError" in outcomes["boundary"].error
 
 
 def test_comparison_reporter_writes_and_formats(tmp_path: Path) -> None:

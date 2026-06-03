@@ -53,6 +53,7 @@ class MeldConfig(DatasetConfig):
     csv_test: str = "test_sent_emo.csv"
     audio_subdir: str = "audio"
     video_subdir: str = "video"
+    metadata_path: str | None = None
 
 
 DATASET_CONFIGS.add(SyntheticConfig.type, SyntheticConfig)
@@ -113,6 +114,15 @@ class VisualCueConfig(ExtractorConfig):
     dim: int = 16
 
 
+@dataclass(frozen=True)
+class PrecomputedMeldFeatureConfig(ExtractorConfig):
+    type: ClassVar[str] = "meld_precomputed"
+    path: str = ""
+    modality: str = "text"
+    kind: str = "embedding"
+    name_prefix: str = ""
+
+
 for _ec in (
     TextConceptConfig,
     BowTextConfig,
@@ -122,6 +132,7 @@ for _ec in (
     MfccConfig,
     VideoConceptConfig,
     VisualCueConfig,
+    PrecomputedMeldFeatureConfig,
 ):
     EXTRACTOR_CONFIGS.add(_ec.type, _ec)
 

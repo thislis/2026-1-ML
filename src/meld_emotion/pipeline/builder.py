@@ -38,6 +38,7 @@ from meld_emotion.config.schema import (
     NearestCentroidConfig,
     NullCacheConfig,
     PermutationConfig,
+    PrecomputedMeldFeatureConfig,
     RandomEstimatorConfig,
     RandomForestConfig,
     ReporterConfig,
@@ -61,7 +62,7 @@ from meld_emotion.core.protocols import (
     Metric,
     Reporter,
 )
-from meld_emotion.core.types import Emotion, FeatureKind, Split
+from meld_emotion.core.types import Emotion, FeatureKind, Modality, Split
 from meld_emotion.data.labels import EmotionLabelEncoder
 from meld_emotion.data.meld import MeldDatasetSource
 from meld_emotion.data.synthetic import SyntheticDatasetSource
@@ -72,6 +73,7 @@ from meld_emotion.explain.counterfactual import CounterfactualExplainer
 from meld_emotion.explain.modality_contribution import ModalityAblationExplainer
 from meld_emotion.explain.permutation import PermutationImportanceExplainer
 from meld_emotion.features.audio import AudioConceptExtractor, MfccAcousticExtractor
+from meld_emotion.features.precomputed import MeldPrecomputedFeatureExtractor
 from meld_emotion.features.text import (
     BowTextExtractor,
     SentenceEmbeddingExtractor,
@@ -132,6 +134,7 @@ def build_dataset(config: DatasetConfig) -> DatasetSource:
             csv_test=config.csv_test,
             audio_subdir=config.audio_subdir,
             video_subdir=config.video_subdir,
+            metadata_path=config.metadata_path,
         )
     raise ValueError(f"알 수 없는 데이터셋 설정: {type(config).__name__}")
 
@@ -153,6 +156,13 @@ def build_extractor(config: ExtractorConfig) -> FeatureExtractor:
         return VideoConceptExtractor()
     if isinstance(config, VisualCueConfig):
         return VisualCueExtractor(dim=config.dim)
+    if isinstance(config, PrecomputedMeldFeatureConfig):
+        return MeldPrecomputedFeatureExtractor(
+            path=config.path,
+            modality=Modality(config.modality),
+            kind=FeatureKind(config.kind),
+            name_prefix=config.name_prefix,
+        )
     raise ValueError(f"알 수 없는 추출기 설정: {type(config).__name__}")
 
 
