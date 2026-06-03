@@ -62,3 +62,4 @@ Thumbs.db
 # Data files (if not stored in a separate repository or storage)
 MELD.Raw.tar.gz
 MELD.Raw/
+MELD.Features.Models/
