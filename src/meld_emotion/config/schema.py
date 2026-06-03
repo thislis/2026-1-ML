@@ -161,6 +161,13 @@ class NearestCentroidConfig(EstimatorConfig):
 
 
 @dataclass(frozen=True)
+class LinearRegressionConfig(EstimatorConfig):
+    type: ClassVar[str] = "linear_regression"
+    alpha: float = 1e-6
+    fit_intercept: bool = True
+
+
+@dataclass(frozen=True)
 class SvmConfig(EstimatorConfig):
     type: ClassVar[str] = "svm"
     C: float = 1.0
@@ -187,14 +194,27 @@ class KnnConfig(EstimatorConfig):
     n_neighbors: int = 5
 
 
+@dataclass(frozen=True)
+class XGBoostConfig(EstimatorConfig):
+    type: ClassVar[str] = "xgboost"
+    n_estimators: int = 200
+    max_depth: int = 6
+    learning_rate: float = 0.1
+    subsample: float = 1.0
+    colsample_bytree: float = 1.0
+    seed: int = 0
+
+
 for _est in (
     MajorityConfig,
     RandomEstimatorConfig,
     NearestCentroidConfig,
+    LinearRegressionConfig,
     SvmConfig,
     LogRegConfig,
     RandomForestConfig,
     KnnConfig,
+    XGBoostConfig,
 ):
     ESTIMATOR_CONFIGS.add(_est.type, _est)
 

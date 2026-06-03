@@ -9,6 +9,7 @@ from meld_emotion.config.schema import (
     EarlyFusionConfig,
     EvaluationConfig,
     ExperimentConfig,
+    LinearRegressionConfig,
     MeldConfig,
     NearestCentroidConfig,
     NullCacheConfig,
@@ -116,7 +117,40 @@ def test_meld_precomputed_smoke_e2e_centroid() -> None:
     assert result.evaluation.metric("accuracy") is not None
 
 
+def test_meld_precomputed_smoke_e2e_linear_regression() -> None:
+    config = ExperimentConfig(
+        name="meld_precomputed_linear_smoke",
+        train_split="dev",
+        eval_split="dev",
+        dataset=MeldConfig(metadata_path=str(_FEATURES / "data_emotion.p")),
+        extractors=(
+            PrecomputedMeldFeatureConfig(
+                path=str(_FEATURES / "text_glove_CNN_emotion.pkl"),
+                modality="text",
+            ),
+        ),
+        model=EarlyFusionConfig(base=LinearRegressionConfig(alpha=1e-3)),
+        evaluation=EvaluationConfig(metrics=("accuracy",), confusion=False, scenarios=()),
+        cache=NullCacheConfig(),
+        reporters=(),
+    )
+    result = build_experiment(config).run()
+    assert result.evaluation.metric("accuracy") is not None
+
+
 def test_example_meld_precomputed_config_loads() -> None:
     config = load_config(_ROOT / "configs" / "example_meld_precomputed_svm.yaml")
     assert isinstance(config.dataset, MeldConfig)
     assert len(config.extractors) == 2
+
+
+def test_example_meld_precomputed_baseline_suite_loads() -> None:
+    from meld_emotion.config.loader import load_suite
+
+    suite = load_suite(_ROOT / "configs" / "example_meld_precomputed_baselines.yaml")
+    assert {config.name for config in suite.experiments} == {
+        "xgboost",
+        "svm",
+        "logreg",
+        "linear_regression",
+    }

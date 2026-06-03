@@ -13,7 +13,8 @@ dependencies = [
 text = ["scikit-learn>=1.4", "sentence-transformers>=2.6"]
 audio = ["librosa>=0.10", "soundfile>=0.12"]
 video = ["opencv-python>=4.9", "mediapipe>=0.10"]
-all = ["meld-emotion[text,audio,video]"]
+xgboost = ["xgboost>=2.0"]
+all = ["meld-emotion[text,audio,video,xgboost]"]
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
@@ -74,6 +75,7 @@ module = [
     "cv2.*",
     "mediapipe.*",
     "sentence_transformers.*",
+    "xgboost.*",
 ]
 ignore_missing_imports = true
 

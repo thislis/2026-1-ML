@@ -27,6 +27,7 @@ from meld_emotion.config.schema import (
     JsonReporterConfig,
     KnnConfig,
     LateFusionConfig,
+    LinearRegressionConfig,
     LogRegConfig,
     MajorityConfig,
     MeanCombinerConfig,
@@ -51,6 +52,7 @@ from meld_emotion.config.schema import (
     VideoConceptConfig,
     VisualCueConfig,
     WeightedCombinerConfig,
+    XGBoostConfig,
 )
 from meld_emotion.core.protocols import (
     Classifier,
@@ -91,6 +93,7 @@ from meld_emotion.fusion.early import EarlyFusionClassifier
 from meld_emotion.fusion.late import LateFusionClassifier
 from meld_emotion.fusion.masking import ModalityDropout, ModalityScenario, get_scenario
 from meld_emotion.models.baselines import (
+    LinearRegressionEstimator,
     MajorityClassEstimator,
     NearestCentroidEstimator,
     RandomEstimator,
@@ -101,6 +104,7 @@ from meld_emotion.models.sklearn_estimators import (
     RandomForestEstimator,
     SvmEstimator,
 )
+from meld_emotion.models.xgboost_estimators import XGBoostEstimator
 from meld_emotion.pipeline.cache import (
     DiskFeatureCache,
     InMemoryFeatureCache,
@@ -180,6 +184,12 @@ def build_estimator_factory(config: EstimatorConfig) -> Callable[[int], Estimato
         return lambda n: RandomEstimator(n_classes=n, seed=config.seed)
     if isinstance(config, NearestCentroidConfig):
         return lambda n: NearestCentroidEstimator(n_classes=n, temperature=config.temperature)
+    if isinstance(config, LinearRegressionConfig):
+        return lambda n: LinearRegressionEstimator(
+            n_classes=n,
+            alpha=config.alpha,
+            fit_intercept=config.fit_intercept,
+        )
     if isinstance(config, SvmConfig):
         return lambda n: SvmEstimator(n_classes=n, C=config.C, kernel=config.kernel)
     if isinstance(config, LogRegConfig):
@@ -192,6 +202,16 @@ def build_estimator_factory(config: EstimatorConfig) -> Callable[[int], Estimato
         )
     if isinstance(config, KnnConfig):
         return lambda n: KnnEstimator(n_classes=n, n_neighbors=config.n_neighbors)
+    if isinstance(config, XGBoostConfig):
+        return lambda n: XGBoostEstimator(
+            n_classes=n,
+            n_estimators=config.n_estimators,
+            max_depth=config.max_depth,
+            learning_rate=config.learning_rate,
+            subsample=config.subsample,
+            colsample_bytree=config.colsample_bytree,
+            seed=config.seed,
+        )
     raise ValueError(f"알 수 없는 학습기 설정: {type(config).__name__}")
 
 
