@@ -9,6 +9,7 @@ from meld_emotion.config.schema import (
     EarlyFusionConfig,
     ExperimentConfig,
     LateFusionConfig,
+    LinearRegressionConfig,
     MeanCombinerConfig,
     MfccConfig,
     SvmConfig,
@@ -41,6 +42,17 @@ def test_late_fusion_roundtrip() -> None:
     assert from_dict(to_dict(config)) == config
 
 
+def test_new_baseline_configs_roundtrip() -> None:
+    from meld_emotion.config.schema import XGBoostConfig
+
+    for base in (
+        LinearRegressionConfig(alpha=0.01, fit_intercept=False),
+        XGBoostConfig(n_estimators=10, max_depth=3, learning_rate=0.2),
+    ):
+        config = ExperimentConfig(name="base", model=EarlyFusionConfig(base=base))
+        assert from_dict(to_dict(config)) == config
+
+
 def test_yaml_file_roundtrip(tmp_path: Path) -> None:
     config = _complex_config()
     path = tmp_path / "exp.yaml"
@@ -50,7 +62,10 @@ def test_yaml_file_roundtrip(tmp_path: Path) -> None:
 
 def test_example_configs_load() -> None:
     root = Path(__file__).resolve().parents[1] / "configs"
-    for name in ("example_synthetic.yaml", "example_meld_early_svm.yaml"):
+    for name in (
+        "example_synthetic.yaml",
+        "example_meld_early_svm.yaml",
+    ):
         config = load_config(root / name)
         assert isinstance(config, ExperimentConfig)
         assert config.name

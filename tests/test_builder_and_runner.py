@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from meld_emotion.config.schema import BowTextConfig as Bow
 from meld_emotion.config.schema import (
     EarlyFusionConfig,
@@ -74,17 +72,24 @@ def test_json_reporter_writes(tmp_path) -> None:
     assert out.exists()
 
 
-def test_meld_source_raises() -> None:
+def test_meld_source_metadata_runs() -> None:
+    from pathlib import Path
+
     from meld_emotion.config.schema import MeldConfig
 
+    root = Path(__file__).resolve().parents[1]
     config = _config(EarlyFusionConfig(base=NearestCentroidConfig()))
     config = ExperimentConfig(
         name="meld",
-        dataset=MeldConfig(),
+        train_split="dev",
+        eval_split="dev",
+        dataset=MeldConfig(
+            metadata_path=str(root / "MELD.Features.Models" / "features" / "data_emotion.p")
+        ),
         extractors=config.extractors,
         model=config.model,
-        evaluation=config.evaluation,
+        evaluation=EvaluationConfig(metrics=("accuracy",), confusion=False, scenarios=()),
         reporters=(),
     )
-    with pytest.raises(NotImplementedError):
-        build_experiment(config).run()
+    result = build_experiment(config).run()
+    assert result.evaluation.metric("accuracy") is not None

@@ -1,0 +1,65 @@
+# MELD precomputed feature 로 baseline 모델들을 한 번에 비교한다.
+#   uv run meld-emotion compare --config configs/example_meld_precomputed_baselines.yaml
+name: meld_precomputed_baselines
+metrics: [accuracy, macro_f1, weighted_f1]
+robustness_metric: macro_f1
+output_path: outputs/meld_precomputed_baselines.json
+
+base:
+  seed: 0
+  dataset:
+    type: meld
+    metadata_path: MELD.Features.Models/features/data_emotion.p
+  extractors:
+    - type: meld_precomputed
+      path: MELD.Features.Models/features/text_glove_average_emotion.pkl
+      modality: text
+    - type: meld_precomputed
+      path: MELD.Features.Models/features/audio_embeddings_feature_selection_emotion.pkl
+      modality: audio
+  evaluation:
+    metrics: [accuracy, macro_f1, weighted_f1, per_class_recall]
+    confusion: true
+    scenarios: [full, no_text, no_audio]
+  reporters: []
+
+experiments:
+  - name: xgboost
+    model:
+      type: early
+      base:
+        type: xgboost
+        n_estimators: 200
+        max_depth: 6
+        learning_rate: 0.1
+        subsample: 1.0
+        colsample_bytree: 1.0
+        seed: 0
+      use_concepts: true
+
+  - name: svm
+    model:
+      type: early
+      base:
+        type: svm
+        C: 1.0
+        kernel: rbf
+      use_concepts: true
+
+  - name: logreg
+    model:
+      type: early
+      base:
+        type: logreg
+        C: 1.0
+        max_iter: 1000
+      use_concepts: true
+
+  - name: linear_regression
+    model:
+      type: early
+      base:
+        type: linear_regression
+        alpha: 1.0e-6
+        fit_intercept: true
+      use_concepts: true

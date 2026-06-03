@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from meld_emotion.models.baselines import (
+    LinearRegressionEstimator,
     MajorityClassEstimator,
     NearestCentroidEstimator,
     RandomEstimator,
@@ -15,11 +16,14 @@ from meld_emotion.models.sklearn_estimators import (
     LogisticRegressionEstimator,
     SvmEstimator,
 )
+from meld_emotion.models.xgboost_estimators import XGBoostEstimator
 
 __all__ = [
+    "LinearRegressionEstimator",
     "LogisticRegressionEstimator",
     "MajorityClassEstimator",
     "NearestCentroidEstimator",
     "RandomEstimator",
     "SvmEstimator",
+    "XGBoostEstimator",
 ]

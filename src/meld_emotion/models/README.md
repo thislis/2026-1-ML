@@ -10,6 +10,7 @@
   - `MajorityClassEstimator` — 최빈 클래스(성능 하한선).
   - `RandomEstimator` — 시드 기반 무작위(형상/정상성 검증).
   - `NearestCentroidEstimator` — z-표준화 후 클래스 중심 거리 분류. 합성 데이터에서 실제 학습.
+  - `LinearRegressionEstimator`(`linear_regression`) — one-vs-rest 선형회귀 + softmax.
 - `sklearn_estimators.py` (완전 구현, `[text]` extra 필요):
   - `SvmEstimator`(`svm`), `LogisticRegressionEstimator`(`logreg`) — 교수님 피드백에서 명시한
     베이스라인.
@@ -17,6 +18,8 @@
   - 공통 기반 `_SklearnProbaEstimator` 가 (1) sklearn 지연 import(미설치 시 명확한 `ImportError`),
     (2) 스케일 민감 모델(SVM/LogReg/KNN)에 `StandardScaler` 파이프라인 적용, (3) sklearn 이
     학습에서 본 클래스 열만 내는 `predict_proba` 를 **전체 클래스 폭 K** 로 확장하는 일을 담당한다.
+- `xgboost_estimators.py` (완전 구현, `[xgboost]` extra 필요):
+  - `XGBoostEstimator`(`xgboost`) — `XGBClassifier(objective="multi:softprob")` baseline.
 
 ## 클래스 수(K)는 데이터가 아니라 레이블 공간에서
 

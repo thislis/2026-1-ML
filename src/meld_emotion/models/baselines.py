@@ -91,6 +91,66 @@ class RandomEstimator:
 
 
 @real
+class LinearRegressionEstimator:
+    """One-vs-rest 선형회귀 baseline.
+
+    감정 클래스를 one-hot target 으로 두고 ridge-style least squares 를 학습한다. 예측 시
+    클래스별 회귀 점수를 softmax 로 바꿔 `predict_proba` 계약을 만족시킨다.
+    """
+
+    def __init__(
+        self,
+        n_classes: int | None = None,
+        alpha: float = 1e-6,
+        fit_intercept: bool = True,
+    ) -> None:
+        if alpha < 0.0:
+            raise ValueError("alpha 는 음수일 수 없습니다")
+        self._n_classes = n_classes
+        self._alpha = alpha
+        self._fit_intercept = fit_intercept
+        self._coef: FloatArray = np.zeros((0, 0), dtype=np.float64)
+        self._k = 0
+
+    def fit(self, x: FloatArray, y: IntArray) -> Self:
+        x = np.asarray(x, dtype=np.float64)
+        y = np.asarray(y, dtype=np.int64)
+        self._k = _resolve_n_classes(self._n_classes, y)
+        design = _with_intercept(x) if self._fit_intercept else x
+        target = np.zeros((y.shape[0], self._k), dtype=np.float64)
+        if y.size:
+            target[np.arange(y.shape[0]), y] = 1.0
+
+        gram = design.T @ design
+        if self._alpha > 0.0:
+            penalty = np.eye(gram.shape[0], dtype=np.float64) * self._alpha
+            if self._fit_intercept:
+                penalty[-1, -1] = 0.0
+            gram = gram + penalty
+        rhs = design.T @ target
+        try:
+            self._coef = _as_float(np.linalg.solve(gram, rhs))
+        except np.linalg.LinAlgError:
+            self._coef = _as_float(np.linalg.pinv(gram) @ rhs)
+        return self
+
+    def _scores(self, x: FloatArray) -> FloatArray:
+        if self._coef.size == 0:
+            raise RuntimeError("학습되지 않은 학습기입니다. 먼저 fit 을 호출하세요.")
+        design = _with_intercept(np.asarray(x, dtype=np.float64)) if self._fit_intercept else x
+        return _as_float(design @ self._coef)
+
+    def predict(self, x: FloatArray) -> IntArray:
+        return _as_int(np.argmax(self.predict_proba(x), axis=1))
+
+    def predict_proba(self, x: FloatArray) -> FloatArray:
+        scores = self._scores(x)
+        scores -= scores.max(axis=1, keepdims=True)
+        exp = np.exp(scores)
+        return _as_float(exp / exp.sum(axis=1, keepdims=True))
+
+
+@real
 class NearestCentroidEstimator:
     """클래스별 중심(centroid)과의 거리로 분류하는 학습기.
 
@@ -140,3 +200,8 @@ class NearestCentroidEstimator:
         logits -= logits.max(axis=1, keepdims=True)
         exp = np.exp(logits)
         return _as_float(exp / exp.sum(axis=1, keepdims=True))
+
+
+def _with_intercept(x: FloatArray) -> FloatArray:
+    bias = np.ones((x.shape[0], 1), dtype=np.float64)
+    return _as_float(np.concatenate([x, bias], axis=1))

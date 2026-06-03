@@ -9,6 +9,7 @@ from meld_emotion.core.types import FeatureKind, Modality
 from meld_emotion.data.labels import EmotionLabelEncoder
 from meld_emotion.fusion.early import EarlyFusionClassifier
 from meld_emotion.models.baselines import (
+    LinearRegressionEstimator,
     MajorityClassEstimator,
     NearestCentroidEstimator,
     RandomEstimator,
@@ -42,6 +43,20 @@ def test_centroid_proba_width_uses_injected_n_classes() -> None:
     x, y = _xy_missing_top_classes()
     est = NearestCentroidEstimator(n_classes=_N_EMOTIONS).fit(x, y)
     assert est.predict_proba(x).shape == (y.size, _N_EMOTIONS)
+
+
+def test_linear_regression_proba_width_uses_injected_n_classes() -> None:
+    x, y = _xy_missing_top_classes()
+    est = LinearRegressionEstimator(n_classes=_N_EMOTIONS).fit(x, y)
+    proba = est.predict_proba(x)
+    assert proba.shape == (y.size, _N_EMOTIONS)
+    assert np.allclose(proba.sum(axis=1), 1.0)
+
+
+def test_linear_regression_predict_matches_proba_argmax() -> None:
+    x, y = _xy_missing_top_classes()
+    est = LinearRegressionEstimator(n_classes=_N_EMOTIONS).fit(x, y)
+    assert np.array_equal(est.predict(x), np.argmax(est.predict_proba(x), axis=1))
 
 
 def test_injected_n_classes_grows_if_data_has_more() -> None:

@@ -53,6 +53,7 @@ class MeldConfig(DatasetConfig):
     csv_test: str = "test_sent_emo.csv"
     audio_subdir: str = "audio"
     video_subdir: str = "video"
+    metadata_path: str | None = None
 
 
 DATASET_CONFIGS.add(SyntheticConfig.type, SyntheticConfig)
@@ -113,6 +114,15 @@ class VisualCueConfig(ExtractorConfig):
     dim: int = 16
 
 
+@dataclass(frozen=True)
+class PrecomputedMeldFeatureConfig(ExtractorConfig):
+    type: ClassVar[str] = "meld_precomputed"
+    path: str = ""
+    modality: str = "text"
+    kind: str = "embedding"
+    name_prefix: str = ""
+
+
 for _ec in (
     TextConceptConfig,
     BowTextConfig,
@@ -122,6 +132,7 @@ for _ec in (
     MfccConfig,
     VideoConceptConfig,
     VisualCueConfig,
+    PrecomputedMeldFeatureConfig,
 ):
     EXTRACTOR_CONFIGS.add(_ec.type, _ec)
 
@@ -147,6 +158,13 @@ class RandomEstimatorConfig(EstimatorConfig):
 class NearestCentroidConfig(EstimatorConfig):
     type: ClassVar[str] = "centroid"
     temperature: float = 1.0
+
+
+@dataclass(frozen=True)
+class LinearRegressionConfig(EstimatorConfig):
+    type: ClassVar[str] = "linear_regression"
+    alpha: float = 1e-6
+    fit_intercept: bool = True
 
 
 @dataclass(frozen=True)
@@ -176,14 +194,27 @@ class KnnConfig(EstimatorConfig):
     n_neighbors: int = 5
 
 
+@dataclass(frozen=True)
+class XGBoostConfig(EstimatorConfig):
+    type: ClassVar[str] = "xgboost"
+    n_estimators: int = 200
+    max_depth: int = 6
+    learning_rate: float = 0.1
+    subsample: float = 1.0
+    colsample_bytree: float = 1.0
+    seed: int = 0
+
+
 for _est in (
     MajorityConfig,
     RandomEstimatorConfig,
     NearestCentroidConfig,
+    LinearRegressionConfig,
     SvmConfig,
     LogRegConfig,
     RandomForestConfig,
     KnnConfig,
+    XGBoostConfig,
 ):
     ESTIMATOR_CONFIGS.add(_est.type, _est)
 
