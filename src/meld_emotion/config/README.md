@@ -20,6 +20,7 @@
 | `extractors` | 특징 추출기 목록(모달리티 × 임베딩/개념) | `(text_concepts,)` |
 | `model` | 융합 분류기(`early`/`late`, 내부 `base` 학습기) | `early` |
 | `dropout` | 학습 시 modality dropout(`None` = 미적용) | `None` |
+| `media` | raw MP4 lazy-load(`audio_sample_rate`, `video_max_frames`, `video_frame_size`) | 16kHz, 32프레임, 64×64 |
 | `evaluation` | 지표·혼동행렬·강건성 시나리오 | 기본 4지표, `full` |
 | `explainers` | 설명기 목록(permutation/ablation/counterfactual) | `()` |
 | `cache` | 특징 캐시(`memory`/`null`/`disk`) | `memory` |
@@ -38,6 +39,14 @@
   레지스트리에서 알맞은 dataclass 를 복원하며 중첩 설정(model.base, late.combiner,
   stacking.meta)도 재귀 처리한다. 다중 실험 비교는 `SuiteConfig` + `load_suite`/`suite_from_dict`
   (공유 `base` + 변형 목록 깊은 병합) — 형식은 [pipeline/README.md](../pipeline/README.md).
+
+## 여러 실험을 기술하는 것: `SuiteConfig`
+
+`meld-emotion compare` 는 `SuiteConfig` 를 읽어 여러 `ExperimentConfig` 를 같은 실행 경로로
+돌린다. suite YAML 의 최상위 필드는 `name`, `metrics`, `robustness_metric`, `output_path`,
+공유 설정 `base`, 변형 목록 `experiments` 이다. `base` 와 각 변형은 깊은 병합되지만,
+`extractors` 같은 리스트는 통째로 교체되고, 다형성 `type` 이 바뀌는 매핑은 이전 타입의 전용
+필드를 끌고 오지 않도록 통째로 교체된다.
 
 ## 새 설정 항목 추가하기
 
@@ -59,3 +68,5 @@ YAML 에서는 `{type: text_myfeat, dim: 64}` 로 사용한다.
 
 - `ClassVar` 식별자는 필드 순서/기본값 문제를 피하려는 의도다(중첩 기본값은 `default_factory`).
 - 새 스칼라 필드는 **기본값**을 주어야 기존 YAML 과 호환된다.
+- 새 중첩 설정을 YAML 에서 복원해야 한다면 `loader.py` 에 재귀 복원 함수를 추가해야 한다
+  (`model.base`, `late.combiner`, `stacking.meta`, `media.video_frame_size` 가 현재 예시다).

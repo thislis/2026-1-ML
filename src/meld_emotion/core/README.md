@@ -11,9 +11,10 @@
 - `features.py` — `FeatureMatrix`(추출기 1개 출력), `FeatureBundle`(분할 전체 멀티모달 묶음,
   `stack`/`embedding_matrix`/`concept_vector`/`select` 헬퍼), `StackedFeatures`/`ColumnSpec`.
 - `results.py` — 산출물: `PredictionSet`, `MetricResult`, `EvaluationReport`, `RobustnessReport`,
-  설명 결과(`FeatureContribution`/`ModalityContribution`/`CounterfactualResult`), `ExperimentResult`.
+  설명 결과(`FeatureContribution`/`ModalityContribution`/`CounterfactualResult`), 단일 실험
+  `ExperimentResult`, suite 비교용 `ExperimentOutcome`/`ComparisonReport`.
 - `protocols.py` — 단계 간 계약: `DatasetSource`, `FeatureExtractor`, `Estimator`, `Classifier`,
-  `Metric`, `Explainer`, `FeatureCache`, `Reporter`, `LabelEncoder`.
+  `Metric`, `Explainer`, `FeatureCache`, `Reporter`, `ExperimentEvaluator`, `LabelEncoder`.
 - `status.py` — 구현 상태 마커(`@real`/`@placeholder`/`@unimplemented`)와 레지스트리.
 
 ## 설계 메모

@@ -66,6 +66,7 @@ from meld_emotion.core.protocols import (
 )
 from meld_emotion.core.types import Emotion, FeatureKind, Modality, Split
 from meld_emotion.data.labels import EmotionLabelEncoder
+from meld_emotion.data.media import MediaLoader
 from meld_emotion.data.meld import MeldDatasetSource
 from meld_emotion.data.synthetic import SyntheticDatasetSource
 from meld_emotion.evaluation.evaluator import Evaluator
@@ -288,7 +289,12 @@ def build_experiment(config: ExperimentConfig) -> ExperimentRunner:
 
     encoder = EmotionLabelEncoder()
     extractors = [build_extractor(e) for e in config.extractors]
-    feature_pipeline = FeaturePipeline(extractors, build_cache(config.cache))
+    media_loader = MediaLoader(
+        audio_sample_rate=config.media.audio_sample_rate,
+        video_max_frames=config.media.video_max_frames,
+        video_frame_size=config.media.video_frame_size,
+    )
+    feature_pipeline = FeaturePipeline(extractors, build_cache(config.cache), media_loader)
     classifier = build_classifier(config.model, encoder.classes)
 
     metrics = [build_metric(name) for name in config.evaluation.metrics]

@@ -44,4 +44,3 @@ def test_registry_has_expected_components() -> None:
     statuses = [r.status for r in iter_status()]
     assert statuses.count(ComponentStatus.REAL) >= 20
     assert ComponentStatus.PLACEHOLDER in statuses
-    assert ComponentStatus.UNIMPLEMENTED in statuses

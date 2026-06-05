@@ -15,6 +15,11 @@
 ✅ 완전 구현(numpy 전용) · ⚠️ 임시(placeholder, 결정적 수치 특징 반환 + 경고). 개념 추출기는
 제안서의 해석 가능한 개념 벡터 `c = [c_T, c_A, c_V]` 를 구성한다.
 
+MELD 팀이 제공한 baseline pickle 을 쓰는 `MeldPrecomputedFeatureExtractor` 도 완전 구현되어
+있다. 이 추출기는 설정에서 `type: meld_precomputed`, `path`, `modality`, `kind` 를 받아
+`FeatureMatrix` 로 변환하며, 데이터셋은 `MeldDatasetSource(metadata_path=...)` 와 함께 쓰는
+것이 기본 경로다.
+
 ## 새 특징 추출기 추가하기
 
 1. [base.py](base.py) 의 `BaseFeatureExtractor` 를 상속하고 `modality`, `kind`(`ClassVar`),
@@ -36,5 +41,5 @@ class MyTextExtractor(BaseFeatureExtractor):
 ## 임시(placeholder) 교체
 
 `features/text/tfidf.py` 등은 결정적 대체 특징을 반환하며 사용 시 한 번 경고한다. 실제 라이브러리
-(scikit-learn/librosa/opencv)로 채울 때 `@placeholder` 를 떼고 `@real` 로 바꾸면
+(scikit-learn/sentence-transformers/librosa/mediapipe 등)로 채울 때 `@placeholder` 를 떼고 `@real` 로 바꾸면
 `meld-emotion status` 에 자동 반영된다. 무거운 의존성은 `[text]`/`[audio]`/`[video]` extra.

@@ -8,16 +8,25 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Self
+from dataclasses import replace
+from typing import Protocol, Self
 
 import numpy as np
 
-from meld_emotion.core.data import RawSample
+from meld_emotion.core.data import AudioInput, RawSample, VideoInput
 from meld_emotion.core.features import FeatureBundle
 from meld_emotion.core.protocols import FeatureCache, FeatureExtractor
 from meld_emotion.core.status import real
 from meld_emotion.core.types import MODALITY_ORDER, BoolArray, Modality, Split
 from meld_emotion.pipeline.cache import NullFeatureCache
+
+
+class MediaLoader(Protocol):
+    """원천 미디어 입력을 실제 배열로 적재하는 최소 계약."""
+
+    def load_audio(self, audio: AudioInput) -> AudioInput: ...
+
+    def load_video(self, video: VideoInput) -> VideoInput: ...
 
 
 @real
@@ -28,18 +37,35 @@ class FeaturePipeline:
         self,
         extractors: Sequence[FeatureExtractor],
         cache: FeatureCache | None = None,
+        media_loader: MediaLoader | None = None,
     ) -> None:
         if not extractors:
             raise ValueError("최소 한 개의 추출기가 필요합니다")
         self._extractors = tuple(extractors)
         self._cache: FeatureCache = cache if cache is not None else NullFeatureCache()
+        self._media_loader = media_loader
+        self._needs_audio = any(e.modality == Modality.AUDIO for e in self._extractors)
+        self._needs_video = any(e.modality == Modality.VIDEO for e in self._extractors)
 
     def fit(self, samples: Sequence[RawSample]) -> Self:
+        prepared = self._prepare_media(samples)
         for extractor in self._extractors:
-            extractor.fit(samples)
+            extractor.fit(prepared)
         return self
 
     def transform(self, samples: Sequence[RawSample], split: Split) -> FeatureBundle:
+        prepared = self._prepare_media(samples)
+        return self._transform_prepared(prepared, split)
+
+    def fit_transform(self, samples: Sequence[RawSample], split: Split) -> FeatureBundle:
+        prepared = self._prepare_media(samples)
+        for extractor in self._extractors:
+            extractor.fit(prepared)
+        return self._transform_prepared(prepared, split)
+
+    def _transform_prepared(
+        self, samples: Sequence[RawSample], split: Split
+    ) -> FeatureBundle:
         matrices = []
         for extractor in self._extractors:
             key = f"{extractor.name}|{split.value}"
@@ -56,8 +82,33 @@ class FeaturePipeline:
             availability=self._availability(samples),
         )
 
-    def fit_transform(self, samples: Sequence[RawSample], split: Split) -> FeatureBundle:
-        return self.fit(samples).transform(samples, split)
+    def _prepare_media(self, samples: Sequence[RawSample]) -> tuple[RawSample, ...]:
+        if self._media_loader is None or not (self._needs_audio or self._needs_video):
+            return tuple(samples)
+
+        prepared: list[RawSample] = []
+        for sample in samples:
+            current = sample
+            audio = current.audio
+            if (
+                self._needs_audio
+                and audio is not None
+                and audio.waveform is None
+                and audio.source_path is not None
+            ):
+                current = replace(current, audio=self._media_loader.load_audio(audio))
+
+            video = current.video
+            if (
+                self._needs_video
+                and video is not None
+                and video.frames is None
+                and video.source_path is not None
+            ):
+                current = replace(current, video=self._media_loader.load_video(video))
+
+            prepared.append(current)
+        return tuple(prepared)
 
     @staticmethod
     def _availability(samples: Sequence[RawSample]) -> dict[Modality, BoolArray]:
