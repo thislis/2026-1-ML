@@ -69,6 +69,7 @@ class XGBoostEstimator:
             colsample_bytree=self.colsample_bytree,
             random_state=self.seed,
             eval_metric="mlogloss",
+            n_jobs=1,
         )
         model.fit(x, y_local)
         self._model = model

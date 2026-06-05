@@ -18,6 +18,7 @@ from meld_emotion.config.schema import (
     CounterfactualConfig,
     DashboardReporterConfig,
     DatasetConfig,
+    DialogueRnnConfig,
     DiskCacheConfig,
     EarlyFusionConfig,
     EstimatorConfig,
@@ -235,6 +236,10 @@ def build_classifier(config: ModelConfig, classes: tuple[Emotion, ...]) -> Class
         return LateFusionClassifier(
             build_estimator_factory(config.base), build_combiner(config.combiner), classes
         )
+    if isinstance(config, DialogueRnnConfig):
+        from meld_emotion.models.dialogue_rnn import TorchDialogueEmotionClassifier
+
+        return TorchDialogueEmotionClassifier(config, classes)
     raise ValueError(f"알 수 없는 모델 설정: {type(config).__name__}")
 
 

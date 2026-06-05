@@ -14,7 +14,8 @@ text = ["scikit-learn>=1.4", "sentence-transformers>=2.6"]
 audio = ["av>=11", "librosa>=0.10", "soundfile>=0.12"]
 video = ["opencv-python>=4.9", "mediapipe>=0.10"]
 xgboost = ["xgboost>=2.0"]
-all = ["meld-emotion[text,audio,video,xgboost]"]
+deep = ["torch>=2.2"]
+all = ["meld-emotion[text,audio,video,xgboost,deep]"]
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
@@ -77,6 +78,8 @@ module = [
     "mediapipe.*",
     "sentence_transformers.*",
     "xgboost.*",
+    "torch",
+    "torch.*",
 ]
 ignore_missing_imports = true
 

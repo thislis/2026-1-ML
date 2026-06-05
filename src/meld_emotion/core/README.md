@@ -9,7 +9,8 @@
   (`FloatArray`/`IntArray`/`BoolArray`), 표준 순서(`EMOTION_ORDER`, `MODALITY_ORDER`).
 - `data.py` — 원천 입력 dataclass: `RawSample`, `AudioInput`, `VideoInput`, `ModalityMask`.
 - `features.py` — `FeatureMatrix`(추출기 1개 출력), `FeatureBundle`(분할 전체 멀티모달 묶음,
-  `stack`/`embedding_matrix`/`concept_vector`/`select` 헬퍼), `StackedFeatures`/`ColumnSpec`.
+  `stack`/`embedding_matrix`/`concept_vector`/`select` 헬퍼), `StackedFeatures`/`ColumnSpec`,
+  `UtteranceSpec`(dialogue_id/utterance_id/speaker 보존).
 - `results.py` — 산출물: `PredictionSet`, `MetricResult`, `EvaluationReport`, `RobustnessReport`,
   설명 결과(`FeatureContribution`/`ModalityContribution`/`CounterfactualResult`), 단일 실험
   `ExperimentResult`, suite 비교용 `ExperimentOutcome`/`ComparisonReport`.
@@ -22,6 +23,8 @@
 - 배열을 담는 dataclass 는 `eq=False` (배열의 모호한 진리값 비교 방지).
 - `FeatureBundle.stack(...)` 는 항상 `MODALITY_ORDER`(text→audio→video) 순으로 결합하여
   fit/transform 간 열 순서가 동일하게 유지된다.
+- `FeatureBundle.utterances` 는 기본값이 빈 튜플인 호환 필드다. `FeaturePipeline` 이 채우며,
+  dialogue-level 모델이 발화 행을 `[B,N]` dialogue batch 로 재구성할 때 사용한다.
 - `Estimator` 는 평범한 행렬(X, y)을, `Classifier` 는 `FeatureBundle` 을 다룬다(ISP).
 
 ## 바꿀 일이 생기면

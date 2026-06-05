@@ -71,7 +71,12 @@ def mask_bundle(bundle: FeatureBundle, scenario: ModalityScenario) -> FeatureBun
             availability[modality] = avail
         else:
             availability[modality] = np.zeros(n, dtype=np.bool_)
-    return FeatureBundle(uids=bundle.uids, matrices=matrices, availability=availability)
+    return FeatureBundle(
+        uids=bundle.uids,
+        matrices=matrices,
+        availability=availability,
+        utterances=bundle.utterances,
+    )
 
 
 @real
@@ -109,7 +114,12 @@ class ModalityDropout:
         }
         matrices = tuple(self._apply_to_matrix(m, drop.get(m.modality)) for m in bundle.matrices)
         availability = self._updated_availability(bundle.availability, drop, n)
-        return FeatureBundle(uids=bundle.uids, matrices=matrices, availability=availability)
+        return FeatureBundle(
+            uids=bundle.uids,
+            matrices=matrices,
+            availability=availability,
+            utterances=bundle.utterances,
+        )
 
     @staticmethod
     def _apply_to_matrix(matrix: FeatureMatrix, drop_mask: BoolArray | None) -> FeatureMatrix:

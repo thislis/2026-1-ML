@@ -24,15 +24,22 @@ from meld_emotion.config.schema import (
     MODEL_CONFIGS,
     REPORTER_CONFIGS,
     CacheConfig,
+    ClassifierHeadSettings,
     CombinerConfig,
     DatasetConfig,
+    DialogueContextSettings,
+    DialogueRnnConfig,
+    DialogueTrainingSettings,
     DropoutConfig,
     EstimatorConfig,
     EvaluationConfig,
     ExperimentConfig,
     ExplainerConfig,
     ExtractorConfig,
+    FusionSettings,
     MediaConfig,
+    MemoryAttentionSettings,
+    ModalityEncoderSettings,
     ModelConfig,
     ReporterConfig,
     StackingCombinerConfig,
@@ -77,6 +84,19 @@ def _model(data: Mapping[str, Any]) -> ModelConfig:
         rest["base"] = _estimator(rest["base"])
     if "combiner" in rest:
         rest["combiner"] = _combiner(rest["combiner"])
+    if name == DialogueRnnConfig.type:
+        if "modality_encoder" in rest:
+            rest["modality_encoder"] = ModalityEncoderSettings(**rest["modality_encoder"])
+        if "fusion" in rest:
+            rest["fusion"] = FusionSettings(**rest["fusion"])
+        if "dialogue_context" in rest:
+            rest["dialogue_context"] = DialogueContextSettings(**rest["dialogue_context"])
+        if "memory_attention" in rest:
+            rest["memory_attention"] = MemoryAttentionSettings(**rest["memory_attention"])
+        if "classifier" in rest:
+            rest["classifier"] = ClassifierHeadSettings(**rest["classifier"])
+        if "training" in rest:
+            rest["training"] = DialogueTrainingSettings(**rest["training"])
     return MODEL_CONFIGS.create(name, **rest)
 
 

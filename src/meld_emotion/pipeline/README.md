@@ -10,6 +10,7 @@
 - `feature_pipeline.py` — `FeaturePipeline`: 추출기들을 학습 분할로 `fit` 후 임의 분할을
   `FeatureBundle` 로 변환하고 모달리티 가용성 마스크를 구성한다. 오디오/비디오 추출기가 있고
   source path 만 있는 샘플은 특징 추출 전 `MediaLoader` 로 필요한 배열을 lazy-load 한다.
+  각 행의 `dialogue_id`/`utterance_id`/`speaker` 는 `FeatureBundle.utterances` 에 보존된다.
 - `runner.py` — `ExperimentRunner`: 한 실험을 끝까지 실행하고 `ExperimentResult` 반환.
 - `builder.py` — **구성 루트**. `build_experiment(config) -> ExperimentRunner`. 유일하게 모든
   구체 구현을 import 하여 설정→객체로 연결한다.
@@ -84,6 +85,9 @@ experiments:                                 # base 위에 차이만
   media:
     audio_sample_rate: 16000
     video_max_frames: 32
-    video_frame_size: [64, 64]   # [height, width]
+  video_frame_size: [64, 64]   # [height, width]
   ```
 - 특징 캐시 키는 `"{extractor.name}|{split}"` — 한 실험 내 분할별 재사용을 처리한다.
+- `dialogue_rnn` 모델은 `FeatureBundle.utterances` 를 기준으로 발화별 특징 행을 dialogue batch
+  `[B,N,1,D]` 로 재구성한다. 기존 추출기는 발화별 single vector 를 내므로 sequence length 는
+  1이며, padding 발화는 loss/evaluation 에서 제외된다.

@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.15'",
@@ -1174,12 +1174,16 @@ all = [
     { name = "scikit-learn" },
     { name = "sentence-transformers" },
     { name = "soundfile" },
+    { name = "torch" },
     { name = "xgboost" },
 ]
 audio = [
     { name = "av" },
     { name = "librosa" },
     { name = "soundfile" },
+]
+deep = [
+    { name = "torch" },
 ]
 dev = [
     { name = "mypy" },
@@ -1204,7 +1208,7 @@ requires-dist = [
     { name = "av", marker = "extra == 'audio'", specifier = ">=11" },
     { name = "librosa", marker = "extra == 'audio'", specifier = ">=0.10" },
     { name = "mediapipe", marker = "extra == 'video'", specifier = ">=0.10" },
-    { name = "meld-emotion", extras = ["text", "audio", "video", "xgboost"], marker = "extra == 'all'" },
+    { name = "meld-emotion", extras = ["text", "audio", "video", "xgboost", "deep"], marker = "extra == 'all'" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "opencv-python", marker = "extra == 'video'", specifier = ">=4.9" },
@@ -1214,10 +1218,11 @@ requires-dist = [
     { name = "scikit-learn", marker = "extra == 'text'", specifier = ">=1.4" },
     { name = "sentence-transformers", marker = "extra == 'text'", specifier = ">=2.6" },
     { name = "soundfile", marker = "extra == 'audio'", specifier = ">=0.12" },
+    { name = "torch", marker = "extra == 'deep'", specifier = ">=2.2" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0" },
     { name = "xgboost", marker = "extra == 'xgboost'", specifier = ">=2.0" },
 ]
-provides-extras = ["text", "audio", "video", "xgboost", "all", "dev"]
+provides-extras = ["text", "audio", "video", "xgboost", "deep", "all", "dev"]
 
 [[package]]
 name = "mpmath"

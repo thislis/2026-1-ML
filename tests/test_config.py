@@ -67,6 +67,7 @@ def test_example_configs_load() -> None:
     for name in (
         "example_synthetic.yaml",
         "example_meld_early_svm.yaml",
+        "example_meld_dialogue_rnn.yaml",
     ):
         config = load_config(root / name)
         assert isinstance(config, ExperimentConfig)

@@ -266,8 +266,82 @@ class LateFusionConfig(ModelConfig):
     combiner: CombinerConfig = field(default_factory=lambda: MeanCombinerConfig())
 
 
+@dataclass(frozen=True)
+class ModalityEncoderSettings:
+    text_input_dim: int = 0
+    audio_input_dim: int = 0
+    video_input_dim: int = 0
+    proj_dim: int = 128
+    hidden_dim: int = 128
+    dropout: float = 0.2
+
+
+@dataclass(frozen=True)
+class FusionSettings:
+    modality_dim: int = 128
+    fusion_dim: int = 256
+    dropout: float = 0.3
+    use_gated_fusion: bool = True
+    use_interaction_features: bool = True
+
+
+@dataclass(frozen=True)
+class DialogueContextSettings:
+    speaker_emb_dim: int = 32
+    hidden_dim: int = 256
+    num_layers: int = 1
+    dropout: float = 0.3
+
+
+@dataclass(frozen=True)
+class MemoryAttentionSettings:
+    enabled: bool = True
+    hidden_dim: int = 256
+    attn_dim: int = 256
+    use_rope: bool = False
+    use_relative_distance_bias: bool = True
+    use_same_speaker_bias: bool = True
+    max_relative_distance: int = 32
+
+
+@dataclass(frozen=True)
+class ClassifierHeadSettings:
+    hidden_dim: int = 256
+    dropout: float = 0.3
+
+
+@dataclass(frozen=True)
+class DialogueTrainingSettings:
+    lr: float = 0.0002
+    weight_decay: float = 0.01
+    gradient_clip_norm: float = 1.0
+    batch_size: int = 8
+    max_epochs: int = 50
+    early_stopping_patience: int = 8
+    validation_fraction: float = 0.1
+    modality_dropout: float = 0.2
+    seed: int = 0
+    device: str = "cpu"
+
+
+@dataclass(frozen=True)
+class DialogueRnnConfig(ModelConfig):
+    type: ClassVar[str] = "dialogue_rnn"
+    num_classes: int = 7
+    rnn_type: str = "gru"
+    modality_encoder: ModalityEncoderSettings = field(
+        default_factory=ModalityEncoderSettings
+    )
+    fusion: FusionSettings = field(default_factory=FusionSettings)
+    dialogue_context: DialogueContextSettings = field(default_factory=DialogueContextSettings)
+    memory_attention: MemoryAttentionSettings = field(default_factory=MemoryAttentionSettings)
+    classifier: ClassifierHeadSettings = field(default_factory=ClassifierHeadSettings)
+    training: DialogueTrainingSettings = field(default_factory=DialogueTrainingSettings)
+
+
 MODEL_CONFIGS.add(EarlyFusionConfig.type, EarlyFusionConfig)
 MODEL_CONFIGS.add(LateFusionConfig.type, LateFusionConfig)
+MODEL_CONFIGS.add(DialogueRnnConfig.type, DialogueRnnConfig)
 
 
 # --- 평가 ---------------------------------------------------------------------
