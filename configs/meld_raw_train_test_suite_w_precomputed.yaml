@@ -17,15 +17,15 @@ base:
 
   dataset:
     type: meld
-    root: MELD.Raw
-    csv_train: train/train_sent_emo.csv
-    csv_dev: dev_sent_emo.csv
-    csv_test: test_sent_emo.csv
+    metadata_path: MELD.Features.Models/features/data_emotion.p
 
   extractors:
-    - type: text_concepts
-    - type: text_bow
-      n_features: 512
+    - type: meld_precomputed
+      path: MELD.Features.Models/features/text_glove_average_emotion.pkl
+      modality: text
+    - type: meld_precomputed
+      path: MELD.Features.Models/features/audio_embeddings_feature_selection_emotion.pkl
+      modality: audio
 
   evaluation:
     metrics: [accuracy, macro_f1, weighted_f1, per_class_recall]
