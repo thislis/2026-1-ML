@@ -9,7 +9,27 @@
 - `labels.py` — `EmotionLabelEncoder`: `EMOTION_ORDER` 기준 감정 ↔ 정수 인덱스 변환.
 - `synthetic.py` — 합성 데이터셋. 테스트와 예제 실험용.
 - `meld.py` — MELD CSV 또는 baseline pickle metadata(`data_emotion.p`) 기반 데이터셋 소스.
-- `media.py` — raw media 적재 경계. 현재는 명시적 미구현 상태.
+- `media.py` — raw media 적재 경계. MP4 비디오는 OpenCV 로 오디오를 추출하지 않고 프레임만
+  균등 샘플링해 `(T,H,W,C)` 배열로 적재한다. 오디오 디코딩은 아직 명시적 미구현 상태.
+
+## Raw MP4 Video Loading
+
+`MeldDatasetSource` 는 CSV 의 `Dialogue_ID`/`Utterance_ID` 로 `dia{d}_utt{u}.mp4` 경로를
+`VideoInput.source_path` 에 넣고, 실제 프레임 적재는 `MediaLoader.load_video` 가 담당한다.
+기본값은 `video_max_frames=32`, `video_frame_size=(64, 64)` 이며 크기 의미는 `(height, width)` 다.
+프레임은 BGR→RGB, `[0,1]` 범위 `float64` 로 변환된다.
+
+이 lazy-load 는 비디오 추출기가 포함된 `FeaturePipeline` 에서만 실행된다. 텍스트/오디오만 쓰는
+실험은 OpenCV 를 import 하지 않으며, `MediaLoader` 는 오디오 디코딩이 아직 없어서 status 에서는
+UNIMPLEMENTED 로 표시된다.
+
+실험 설정에서는 다음처럼 조정할 수 있다:
+
+```yaml
+media:
+  video_max_frames: 32
+  video_frame_size: [64, 64]
+```
 
 ## Precomputed Feature Baseline
 

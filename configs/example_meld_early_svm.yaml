@@ -1,4 +1,4 @@
-# 실제 MELD 실험 템플릿. 현재는 @unimplemented 경계(MELD I/O, SVM 학습)에서 멈춘다.
+# 실제 MELD 실험 템플릿. 남은 @unimplemented/placeholder 경계는 `meld-emotion status` 로 확인한다.
 # 구현 진행 상황: `uv run meld-emotion status`
 #
 # 교수님 피드백 반영:
@@ -14,8 +14,13 @@ dropout:
   seed: 0
 
 dataset:
-  type: meld           # MeldDatasetSource (미구현) — data/MELD 의 *_sent_emo.csv 사용
+  type: meld           # MeldDatasetSource — data/MELD 의 *_sent_emo.csv 사용
   root: data/MELD
+
+# raw MP4 비디오는 오디오를 추출하지 않고 프레임만 균등 샘플링한다.
+media:
+  video_max_frames: 32
+  video_frame_size: [64, 64]   # [height, width]
 
 # 텍스트: 개념 + TF-IDF / 오디오: 개념 + MFCC / 비디오: 개념 + 시각 단서
 extractors:
@@ -30,7 +35,7 @@ extractors:
   - type: video_visual
     dim: 16
 
-# Early fusion + SVM 베이스라인 (SvmEstimator 미구현 — scikit-learn 래퍼 필요).
+# Early fusion + SVM 베이스라인.
 model:
   type: early
   base:

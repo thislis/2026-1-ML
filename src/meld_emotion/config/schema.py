@@ -287,6 +287,15 @@ class DropoutConfig:
     seed: int = 0
 
 
+# --- Raw media 적재 -------------------------------------------------------------
+@dataclass(frozen=True)
+class MediaConfig:
+    """MP4 등 raw media 를 특징 추출 전 lazy-load 하는 설정."""
+
+    video_max_frames: int = 32
+    video_frame_size: tuple[int, int] = (64, 64)  # (height, width)
+
+
 # --- 설명(Explainer) -----------------------------------------------------------
 @dataclass(frozen=True)
 class ExplainerConfig:
@@ -387,6 +396,7 @@ class ExperimentConfig:
     extractors: tuple[ExtractorConfig, ...] = field(default_factory=lambda: (TextConceptConfig(),))
     model: ModelConfig = field(default_factory=lambda: EarlyFusionConfig())
     dropout: DropoutConfig | None = None  # 학습 시 modality dropout (None = 미적용)
+    media: MediaConfig = field(default_factory=MediaConfig)
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
     explainers: tuple[ExplainerConfig, ...] = ()
     cache: CacheConfig = field(default_factory=lambda: MemoryCacheConfig())

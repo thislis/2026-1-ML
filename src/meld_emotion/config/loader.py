@@ -32,6 +32,7 @@ from meld_emotion.config.schema import (
     ExperimentConfig,
     ExplainerConfig,
     ExtractorConfig,
+    MediaConfig,
     ModelConfig,
     ReporterConfig,
     StackingCombinerConfig,
@@ -116,6 +117,21 @@ def _dropout(data: Mapping[str, Any]) -> DropoutConfig:
     return DropoutConfig(**kwargs)
 
 
+def _media(data: Mapping[str, Any]) -> MediaConfig:
+    kwargs: dict[str, Any] = {}
+    if "video_max_frames" in data:
+        kwargs["video_max_frames"] = int(data["video_max_frames"])
+    if "video_frame_size" in data:
+        kwargs["video_frame_size"] = _pair_ints(data["video_frame_size"], "video_frame_size")
+    return MediaConfig(**kwargs)
+
+
+def _pair_ints(value: Any, name: str) -> tuple[int, int]:
+    if not isinstance(value, list | tuple) or len(value) != 2:
+        raise ValueError(f"{name} 는 두 정수 값이어야 합니다: {value!r}")
+    return (int(value[0]), int(value[1]))
+
+
 def from_dict(data: Mapping[str, Any]) -> ExperimentConfig:
     """평범한 dict(예: YAML 파싱 결과)를 :class:`ExperimentConfig` 로 복원한다."""
 
@@ -131,6 +147,8 @@ def from_dict(data: Mapping[str, Any]) -> ExperimentConfig:
         kwargs["model"] = _model(data["model"])
     if data.get("dropout") is not None:
         kwargs["dropout"] = _dropout(data["dropout"])
+    if "media" in data:
+        kwargs["media"] = _media(data["media"])
     if "evaluation" in data:
         kwargs["evaluation"] = _evaluation(data["evaluation"])
     if "explainers" in data:

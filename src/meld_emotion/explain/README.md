@@ -4,7 +4,7 @@
 (`explain(model, bundle, y_true) -> ExplanationReport`)을 만족하고, `ExplanationReport` 의 해당
 필드만 채운다(러너가 병합).
 
-## 구성 (모두 완전 구현)
+## 구성
 
 - `permutation.py` — `PermutationImportanceExplainer`: 특징 열을 섞었을 때의 지표 하락으로
   특징 기여도 측정(개념 특징의 기여 분석). 비용이 (대상 열 수 × `n_repeats`)번의 `predict`
@@ -15,6 +15,10 @@
   모달리티 기여도 측정(modality-wise contribution).
 - `counterfactual.py` — `CounterfactualExplainer`: 개념 특징을 평균값으로 되돌렸을 때 예측 확률
   변화 측정(반사실 증거 제거). 원문 단어 삭제 변형은 미구현(`explain_text_deletion`).
+
+세 설명기 모두 현재 파이프라인에서 쓰는 특징 공간 설명 경로는 완전 구현이다. 단,
+`CounterfactualExplainer.explain_text_deletion` 은 토큰 삭제 후 특징 재추출 경로가 아직 없어
+명시적으로 `NotImplementedError` 를 던진다.
 
 ## 새 설명기 추가하기
 
