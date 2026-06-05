@@ -1,0 +1,71 @@
+# MELD precomputed feature 를 dialogue-level GRU + gated fusion + memory attention 모델로 실행.
+#   uv sync --extra deep
+#   uv run meld-emotion run --config configs/example_meld_dialogue_rnn.yaml
+name: meld_dialogue_rnn
+seed: 0
+output_dir: outputs
+
+dataset:
+  type: meld
+  metadata_path: MELD.Features.Models/features/data_emotion.p
+
+extractors:
+  - type: meld_precomputed
+    path: MELD.Features.Models/features/text_glove_average_emotion.pkl
+    modality: text
+  - type: meld_precomputed
+    path: MELD.Features.Models/features/audio_embeddings_feature_selection_emotion.pkl
+    modality: audio
+
+model:
+  type: dialogue_rnn
+  rnn_type: gru
+  modality_encoder:
+    proj_dim: 128
+    hidden_dim: 128
+    dropout: 0.2
+  fusion:
+    modality_dim: 128
+    fusion_dim: 256
+    dropout: 0.3
+    use_gated_fusion: true
+    use_interaction_features: true
+  dialogue_context:
+    speaker_emb_dim: 32
+    hidden_dim: 256
+    num_layers: 1
+    dropout: 0.3
+  memory_attention:
+    enabled: true
+    attn_dim: 256
+    use_rope: false
+    use_relative_distance_bias: true
+    use_same_speaker_bias: true
+    max_relative_distance: 32
+  classifier:
+    hidden_dim: 256
+    dropout: 0.3
+  training:
+    lr: 0.0002
+    weight_decay: 0.01
+    gradient_clip_norm: 1.0
+    batch_size: 8
+    max_epochs: 20
+    early_stopping_patience: 5
+    validation_fraction: 0.1
+    modality_dropout: 0.2
+    seed: 0
+    device: cpu
+
+evaluation:
+  metrics: [accuracy, macro_f1, weighted_f1, per_class_recall]
+  confusion: true
+  scenarios: [full, no_text, no_audio]
+
+cache:
+  type: memory
+
+reporters:
+  - type: console
+  - type: json
+    path: outputs/meld_dialogue_rnn_result.json

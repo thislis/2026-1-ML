@@ -77,6 +77,16 @@ class ColumnSpec:
     source: str = ""
 
 
+@dataclass(frozen=True)
+class UtteranceSpec:
+    """특징 행 하나가 원래 어떤 dialogue utterance 였는지에 대한 메타데이터."""
+
+    uid: UID
+    dialogue_id: int
+    utterance_id: int
+    speaker: str
+
+
 @dataclass(frozen=True, eq=False)
 class StackedFeatures:
     """여러 :class:`FeatureMatrix` 를 열 방향으로 결합한 설계 행렬.
@@ -116,6 +126,14 @@ class FeatureBundle:
     uids: tuple[UID, ...]
     matrices: tuple[FeatureMatrix, ...]
     availability: Mapping[Modality, BoolArray] = field(default_factory=dict)
+    utterances: tuple[UtteranceSpec, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.utterances and len(self.utterances) != len(self.uids):
+            raise ValueError(
+                "utterances 길이는 uids 길이와 일치해야 합니다: "
+                f"{len(self.utterances)} != {len(self.uids)}"
+            )
 
     @property
     def n_samples(self) -> int:
@@ -136,7 +154,15 @@ class FeatureBundle:
         uids = tuple(str(u) for u in np.asarray(self.uids, dtype=object)[idx].tolist())
         matrices = tuple(m.select(rows) for m in self.matrices)
         availability = {mod: avail[idx] for mod, avail in self.availability.items()}
-        return FeatureBundle(uids=uids, matrices=matrices, availability=availability)
+        utterances = tuple(
+            np.asarray(self.utterances, dtype=object)[idx].tolist()
+        ) if self.utterances else ()
+        return FeatureBundle(
+            uids=uids,
+            matrices=matrices,
+            availability=availability,
+            utterances=utterances,
+        )
 
     def by_kind(self, kind: FeatureKind) -> tuple[FeatureMatrix, ...]:
         return tuple(m for m in self.matrices if m.kind == kind)

@@ -18,7 +18,7 @@
 | `eval_split` | 평가·강건성·설명을 수행할 분할(예: `"dev"`) | `"test"` |
 | `dataset` | 데이터셋 소스(`synthetic`/`meld`) | `synthetic` |
 | `extractors` | 특징 추출기 목록(모달리티 × 임베딩/개념) | `(text_concepts,)` |
-| `model` | 융합 분류기(`early`/`late`, 내부 `base` 학습기) | `early` |
+| `model` | 분류기(`early`/`late`, `dialogue_rnn`) | `early` |
 | `dropout` | 학습 시 modality dropout(`None` = 미적용) | `None` |
 | `media` | raw MP4 lazy-load(`audio_sample_rate`, `video_max_frames`, `video_frame_size`) | 16kHz, 32프레임, 64×64 |
 | `evaluation` | 지표·혼동행렬·강건성 시나리오 | 기본 4지표, `full` |
@@ -37,8 +37,31 @@
   각 설정은 다형성 식별자 `type` 을 `ClassVar` 로 가진다(생성자 인자가 아니라 YAML 경계 전용).
 - `loader.py` — `load_config`/`dump_config`(파일), `from_dict`/`to_dict`(직렬화). `type` 을 읽어
   레지스트리에서 알맞은 dataclass 를 복원하며 중첩 설정(model.base, late.combiner,
-  stacking.meta)도 재귀 처리한다. 다중 실험 비교는 `SuiteConfig` + `load_suite`/`suite_from_dict`
-  (공유 `base` + 변형 목록 깊은 병합) — 형식은 [pipeline/README.md](../pipeline/README.md).
+  stacking.meta, dialogue_rnn 의 하위 설정)도 재귀 처리한다. 다중 실험 비교는 `SuiteConfig` +
+  `load_suite`/`suite_from_dict` (공유 `base` + 변형 목록 깊은 병합) — 형식은
+  [pipeline/README.md](../pipeline/README.md).
+
+## `dialogue_rnn` 모델 설정
+
+PyTorch dialogue 모델은 `model.type: dialogue_rnn` 으로 선택한다. `modality_encoder`,
+`fusion`, `dialogue_context`, `memory_attention`, `classifier`, `training` 하위 설정을 가진다.
+`modality_encoder.text_input_dim`/`audio_input_dim`/`video_input_dim` 은 기본 `0` 이며 실제
+특징 차원을 자동 추론한다. RoPE 는 `memory_attention.use_rope: false` 가 기본이다.
+
+```yaml
+model:
+  type: dialogue_rnn
+  rnn_type: gru
+  memory_attention:
+    use_rope: false
+    use_relative_distance_bias: true
+    use_same_speaker_bias: true
+  training:
+    lr: 0.0002
+    batch_size: 8
+    max_epochs: 50
+    modality_dropout: 0.2
+```
 
 ## 여러 실험을 기술하는 것: `SuiteConfig`
 
@@ -69,4 +92,5 @@ YAML 에서는 `{type: text_myfeat, dim: 64}` 로 사용한다.
 - `ClassVar` 식별자는 필드 순서/기본값 문제를 피하려는 의도다(중첩 기본값은 `default_factory`).
 - 새 스칼라 필드는 **기본값**을 주어야 기존 YAML 과 호환된다.
 - 새 중첩 설정을 YAML 에서 복원해야 한다면 `loader.py` 에 재귀 복원 함수를 추가해야 한다
-  (`model.base`, `late.combiner`, `stacking.meta`, `media.video_frame_size` 가 현재 예시다).
+  (`model.base`, `late.combiner`, `stacking.meta`, `dialogue_rnn.training`,
+  `media.video_frame_size` 가 현재 예시다).

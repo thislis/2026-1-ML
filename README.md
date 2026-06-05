@@ -26,6 +26,8 @@ disgust)을 분류하고, **해석 가능한 개념 벡터** `c = [c_T, c_A, c_V
 ```bash
 uv sync --extra dev                                    # 환경 구성 (numpy + pytest + ruff + mypy)
 uv run meld-emotion run --config configs/example_synthetic.yaml   # 전체 파이프라인 즉시 실행
+uv sync --extra deep                                   # PyTorch dialogue RNN 사용 시
+uv run meld-emotion run --config configs/example_meld_dialogue_rnn.yaml
 uv run meld-emotion compare --config configs/example_suite.yaml   # 여러 실험 비교표(Early/Late 등)
 uv run meld-emotion status                             # 구현 상태(완료/임시/미구현) 표
 uv run python -m pytest -q                                       # 단위 + end-to-end 테스트
@@ -34,9 +36,13 @@ uv run ruff check .                                    # 린트
 ```
 
 실제 MELD 실험 템플릿은 [configs/example_meld_early_svm.yaml](configs/example_meld_early_svm.yaml)
-이다. MELD CSV/metadata 로딩과 SVM 계열 베이스라인은 구현되어 있고, raw MP4 는 필요한
+및 dialogue-level PyTorch 모델용
+[configs/example_meld_dialogue_rnn.yaml](configs/example_meld_dialogue_rnn.yaml) 이다.
+MELD CSV/metadata 로딩과 SVM 계열 베이스라인은 구현되어 있고, raw MP4 는 필요한
 스트림만 lazy-load 한다(오디오 extractor 는 waveform 만, 비디오 extractor 는 프레임만 적재).
 아직 남은 임시 경계(TF-IDF, MFCC, 얼굴 랜드마크 등)에 도달하면 placeholder 경고로 알려준다.
+`dialogue_rnn` 모델은 발화별 특징을 dialogue batch 로 재구성해 GRU/LSTM modality encoder,
+gated fusion, speaker-aware dialogue GRU, causal memory attention(RoPE 기본 off)을 학습한다.
 
 ## 디렉터리 맵
 
@@ -46,7 +52,7 @@ uv run ruff check .                                    # 린트
 | [config/](src/meld_emotion/config/README.md) | 타입 명시 설정 dataclass ↔ YAML 로더 | 새 설정 항목 |
 | [data/](src/meld_emotion/data/README.md) | 데이터셋 소스·레이블 인코더·미디어 적재 | **새 데이터셋/전처리** |
 | [features/](src/meld_emotion/features/README.md) | 텍스트/오디오/비디오 × 임베딩/개념 추출기·MELD precomputed 특징 | **새 특징 추출기** |
-| [models/](src/meld_emotion/models/README.md) | 기초 학습기(Estimator) | **새 학습 알고리즘** |
+| [models/](src/meld_emotion/models/README.md) | 기초 학습기(Estimator)·dialogue-level PyTorch Classifier | **새 학습 알고리즘** |
 | [fusion/](src/meld_emotion/fusion/README.md) | Early/Late fusion·결합기·모달리티 마스킹 | **새 융합/시나리오** |
 | [evaluation/](src/meld_emotion/evaluation/README.md) | 지표·평가·강건성 | **새 지표/시나리오** |
 | [explain/](src/meld_emotion/explain/README.md) | permutation·모달리티 ablation·반사실 | **새 설명기** |

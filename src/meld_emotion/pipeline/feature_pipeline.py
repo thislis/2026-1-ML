@@ -14,7 +14,7 @@ from typing import Protocol, Self
 import numpy as np
 
 from meld_emotion.core.data import AudioInput, RawSample, VideoInput
-from meld_emotion.core.features import FeatureBundle
+from meld_emotion.core.features import FeatureBundle, UtteranceSpec
 from meld_emotion.core.protocols import FeatureCache, FeatureExtractor
 from meld_emotion.core.status import real
 from meld_emotion.core.types import MODALITY_ORDER, BoolArray, Modality, Split
@@ -80,6 +80,15 @@ class FeaturePipeline:
             uids=tuple(s.uid for s in samples),
             matrices=tuple(matrices),
             availability=self._availability(samples),
+            utterances=tuple(
+                UtteranceSpec(
+                    uid=s.uid,
+                    dialogue_id=s.dialogue_id,
+                    utterance_id=s.utterance_id,
+                    speaker=s.speaker,
+                )
+                for s in samples
+            ),
         )
 
     def _prepare_media(self, samples: Sequence[RawSample]) -> tuple[RawSample, ...]:

@@ -26,7 +26,10 @@ def _replace_matrix(bundle: FeatureBundle, index: int, matrix: FeatureMatrix) ->
     matrices = list(bundle.matrices)
     matrices[index] = matrix
     return FeatureBundle(
-        uids=bundle.uids, matrices=tuple(matrices), availability=bundle.availability
+        uids=bundle.uids,
+        matrices=tuple(matrices),
+        availability=bundle.availability,
+        utterances=bundle.utterances,
     )
 
 

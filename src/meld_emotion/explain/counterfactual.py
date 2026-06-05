@@ -88,7 +88,12 @@ class CounterfactualExplainer:
             )
             for i, m in enumerate(one_row.matrices)
         )
-        return FeatureBundle(uids=one_row.uids, matrices=rebuilt, availability=one_row.availability)
+        return FeatureBundle(
+            uids=one_row.uids,
+            matrices=rebuilt,
+            availability=one_row.availability,
+            utterances=one_row.utterances,
+        )
 
     def explain_text_deletion(
         self, model: Classifier, bundle: FeatureBundle, y_true: np.ndarray
