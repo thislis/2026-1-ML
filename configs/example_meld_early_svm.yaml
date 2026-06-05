@@ -1,4 +1,4 @@
-# 실제 MELD 실험 템플릿. 남은 @unimplemented/placeholder 경계는 `meld-emotion status` 로 확인한다.
+# 실제 MELD 실험 템플릿. 남은 placeholder 경계는 `meld-emotion status` 로 확인한다.
 # 구현 진행 상황: `uv run meld-emotion status`
 #
 # 교수님 피드백 반영:
@@ -17,8 +17,9 @@ dataset:
   type: meld           # MeldDatasetSource — data/MELD 의 *_sent_emo.csv 사용
   root: data/MELD
 
-# raw MP4 비디오는 오디오를 추출하지 않고 프레임만 균등 샘플링한다.
+# raw MP4 는 필요한 스트림만 lazy-load 한다.
 media:
+  audio_sample_rate: 16000
   video_max_frames: 32
   video_frame_size: [64, 64]   # [height, width]
 

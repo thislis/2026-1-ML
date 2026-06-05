@@ -20,7 +20,7 @@
 | `extractors` | 특징 추출기 목록(모달리티 × 임베딩/개념) | `(text_concepts,)` |
 | `model` | 융합 분류기(`early`/`late`, 내부 `base` 학습기) | `early` |
 | `dropout` | 학습 시 modality dropout(`None` = 미적용) | `None` |
-| `media` | raw MP4 비디오 lazy-load(`video_max_frames`, `video_frame_size`) | 32프레임, 64×64 |
+| `media` | raw MP4 lazy-load(`audio_sample_rate`, `video_max_frames`, `video_frame_size`) | 16kHz, 32프레임, 64×64 |
 | `evaluation` | 지표·혼동행렬·강건성 시나리오 | 기본 4지표, `full` |
 | `explainers` | 설명기 목록(permutation/ablation/counterfactual) | `()` |
 | `cache` | 특징 캐시(`memory`/`null`/`disk`) | `memory` |

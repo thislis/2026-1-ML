@@ -119,6 +119,8 @@ def _dropout(data: Mapping[str, Any]) -> DropoutConfig:
 
 def _media(data: Mapping[str, Any]) -> MediaConfig:
     kwargs: dict[str, Any] = {}
+    if "audio_sample_rate" in data:
+        kwargs["audio_sample_rate"] = int(data["audio_sample_rate"])
     if "video_max_frames" in data:
         kwargs["video_max_frames"] = int(data["video_max_frames"])
     if "video_frame_size" in data:

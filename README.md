@@ -9,7 +9,7 @@ disgust)을 분류하고, **해석 가능한 개념 벡터** `c = [c_T, c_A, c_V
 
 > 이 저장소는 **아키텍처 골격**이다. 파이프라인 전체(데이터→특징→융합→분류→평가→설명→
 > 리포트)가 합성 데이터로 실제 실행/테스트되며, 무거운 실제 구현(TF-IDF, MFCC,
-> 얼굴 랜드마크, raw 오디오 디코딩)은 의도적으로 임시(placeholder) 또는 미구현으로 남겨
+> 얼굴 랜드마크)은 의도적으로 임시(placeholder) 또는 미구현으로 남겨
 > 두었다. 현재 상태는 `uv run meld-emotion status` 로 항상 확인할 수 있다.
 
 ## 설계 목표
@@ -34,9 +34,9 @@ uv run ruff check .                                    # 린트
 ```
 
 실제 MELD 실험 템플릿은 [configs/example_meld_early_svm.yaml](configs/example_meld_early_svm.yaml)
-이다. MELD CSV/metadata 로딩과 SVM 계열 베이스라인은 구현되어 있고, raw MP4 비디오는 오디오를
-추출하지 않고 프레임만 lazy-load 한다. 아직 남은 미구현/임시 경계(raw 오디오 디코딩, TF-IDF,
-MFCC, 얼굴 랜드마크 등)에 도달하면 명확한 예외나 placeholder 경고로 알려준다.
+이다. MELD CSV/metadata 로딩과 SVM 계열 베이스라인은 구현되어 있고, raw MP4 는 필요한
+스트림만 lazy-load 한다(오디오 extractor 는 waveform 만, 비디오 extractor 는 프레임만 적재).
+아직 남은 임시 경계(TF-IDF, MFCC, 얼굴 랜드마크 등)에 도달하면 placeholder 경고로 알려준다.
 
 ## 디렉터리 맵
 
@@ -70,7 +70,7 @@ DatasetSource → FeaturePipeline(추출기들) → FeatureBundle
 
 - **무엇을 돌릴까(선언)** → `ExperimentConfig`/YAML. 최상위 변수 목록은
   [config/README.md](src/meld_emotion/config/README.md) 참고. 학습/평가 분할과 학습 시
-  modality dropout, raw MP4 비디오 적재 옵션도 여기서 켠다
+  modality dropout, raw MP4 미디어 적재 옵션도 여기서 켠다
   (`train_split`/`eval_split`/`dropout`/`media`).
 - **설정→객체 연결(조립)** → [pipeline/builder.py](src/meld_emotion/pipeline/builder.py).
 - **어떤 순서로 실행할까(절차)** → [pipeline/runner.py](src/meld_emotion/pipeline/runner.py)
@@ -84,8 +84,7 @@ DatasetSource → FeaturePipeline(추출기들) → FeatureBundle
 - **무엇이 되어 있나**: `uv run meld-emotion status` 가 [core/status.py](src/meld_emotion/core/status.py)
   레지스트리에서 직접 읽어 REAL / PLACEHOLDER / UNIMPLEMENTED 를 출력한다. 손으로 관리하는
   목록이 아니므로 코드와 어긋나지 않는다.
-  현재 `MediaLoader` 는 오디오 디코딩 때문에 UNIMPLEMENTED 로 분류되지만, `load_video` 의
-  MP4 프레임 적재 경로는 구현되어 있다.
+  `MediaLoader` 는 MP4 오디오 waveform 과 비디오 프레임을 분리해서 lazy-load 한다.
 - **무언가를 추가/교체하려면**: 해당 축의 패키지 README 의 "새 … 추가하기" 절을 따른다.
   공통 절차는 (1) Protocol 을 만족하는 클래스 작성 → (2) [config/schema.py](src/meld_emotion/config/schema.py)
   에 설정 dataclass 추가·등록 → (3) [pipeline/builder.py](src/meld_emotion/pipeline/builder.py)

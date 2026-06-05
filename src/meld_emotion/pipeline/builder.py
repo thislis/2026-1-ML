@@ -290,6 +290,7 @@ def build_experiment(config: ExperimentConfig) -> ExperimentRunner:
     encoder = EmotionLabelEncoder()
     extractors = [build_extractor(e) for e in config.extractors]
     media_loader = MediaLoader(
+        audio_sample_rate=config.media.audio_sample_rate,
         video_max_frames=config.media.video_max_frames,
         video_frame_size=config.media.video_frame_size,
     )

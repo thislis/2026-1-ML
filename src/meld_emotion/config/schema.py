@@ -292,6 +292,7 @@ class DropoutConfig:
 class MediaConfig:
     """MP4 등 raw media 를 특징 추출 전 lazy-load 하는 설정."""
 
+    audio_sample_rate: int = 16000
     video_max_frames: int = 32
     video_frame_size: tuple[int, int] = (64, 64)  # (height, width)
 

@@ -25,13 +25,6 @@ def _text_sample() -> RawSample:
     )
 
 
-def test_unimplemented_media_loader_raises() -> None:
-    from meld_emotion.core.data import AudioInput
-
-    with pytest.raises(NotImplementedError):
-        MediaLoader().load_audio(AudioInput(sample_rate=16000))
-
-
 def test_placeholder_warns_and_returns_valid_matrix() -> None:
     with pytest.warns(RuntimeWarning):
         matrix = TfidfTextExtractor().transform([_text_sample()])
@@ -41,6 +34,6 @@ def test_placeholder_warns_and_returns_valid_matrix() -> None:
 
 def test_status_tags() -> None:
     assert status_of(TfidfTextExtractor) == ComponentStatus.PLACEHOLDER
-    assert status_of(MediaLoader) == ComponentStatus.UNIMPLEMENTED
+    assert status_of(MediaLoader) == ComponentStatus.REAL
     assert status_of(SvmEstimator) == ComponentStatus.REAL  # sklearn 래퍼 구현됨
     assert status_of(EarlyFusionClassifier) == ComponentStatus.REAL

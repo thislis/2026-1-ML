@@ -1,8 +1,9 @@
 """Raw media 적재 경계.
 
-MP4 파일에서 오디오는 건드리지 않고 비디오 프레임만 lazy-load 하는 얇은 경계이다. 무거운
-비디오 의존성(OpenCV)은 실제 로딩 시점에만 import 해서, 텍스트/합성 데이터 실험은 기본
-환경에서도 그대로 동작하게 둔다.
+MP4 파일에서 필요한 스트림만 lazy-load 하는 얇은 경계이다. 오디오 로딩은 비디오 프레임을
+읽지 않고 waveform 만 적재하며, 비디오 로딩은 오디오를 추출하지 않고 프레임만 적재한다.
+무거운 의존성(librosa/OpenCV)은 실제 로딩 시점에만 import 해서, 텍스트/합성 데이터 실험은
+기본 환경에서도 그대로 동작하게 둔다.
 """
 
 from __future__ import annotations
@@ -14,30 +15,56 @@ from typing import Any
 import numpy as np
 
 from meld_emotion.core.data import AudioInput, VideoInput
-from meld_emotion.core.status import raise_unimplemented, unimplemented
+from meld_emotion.core.status import real
 from meld_emotion.core.types import FloatArray
 
 
-@unimplemented("오디오 디코딩은 미구현입니다. MP4 비디오 프레임 로딩만 지원합니다.")
+@real
 class MediaLoader:
     """오디오/비디오 파일을 배열로 적재하는 경계.
 
-    현재 구현 범위는 MP4 비디오 프레임 로딩이다. 오디오 디코딩은 실험 오염을 피하기 위해
-    명시적으로 지원하지 않는다.
+    오디오와 비디오 모두 MP4 컨테이너에서 필요한 스트림만 읽는다. 로딩 결과는
+    :class:`AudioInput`/ :class:`VideoInput` 에 채워져 특징 추출기에서 사용된다.
     """
 
     def __init__(
         self,
+        audio_sample_rate: int = 16000,
         video_max_frames: int = 32,
         video_frame_size: tuple[int, int] = (64, 64),
     ) -> None:
+        if audio_sample_rate <= 0:
+            raise ValueError("audio_sample_rate 는 양의 정수여야 합니다")
         if video_max_frames <= 0:
             raise ValueError("video_max_frames 는 양의 정수여야 합니다")
+        self._audio_sample_rate = audio_sample_rate
         self._video_max_frames = video_max_frames
         self._video_frame_size = _validate_frame_size(video_frame_size)
 
     def load_audio(self, audio: AudioInput) -> AudioInput:
-        raise_unimplemented(self)
+        if audio.waveform is not None:
+            return audio
+        if audio.source_path is None:
+            raise ValueError("AudioInput.source_path 가 없어 오디오를 적재할 수 없습니다")
+
+        path = audio.source_path
+        if not path.exists():
+            raise FileNotFoundError(f"오디오 파일을 찾을 수 없습니다: {path}")
+
+        librosa = _require_librosa()
+        try:
+            waveform, sample_rate = librosa.load(
+                str(path),
+                sr=self._audio_sample_rate,
+                mono=True,
+            )
+        except Exception as exc:
+            raise ValueError(f"오디오 파일을 읽을 수 없습니다: {path}") from exc
+
+        wave = np.asarray(waveform, dtype=np.float64).reshape(-1)
+        if wave.size == 0:
+            raise ValueError(f"오디오 waveform 이 비어 있습니다: {path}")
+        return replace(audio, sample_rate=int(sample_rate), waveform=wave)
 
     def load_video(self, video: VideoInput) -> VideoInput:
         if video.frames is not None:
@@ -133,3 +160,13 @@ def _require_cv2() -> Any:
             "OpenCV 가 필요합니다. `uv sync --extra video` (또는 --extra all) 로 설치하세요."
         ) from exc
     return cv2
+
+
+def _require_librosa() -> Any:
+    try:
+        import librosa
+    except ImportError as exc:  # pragma: no cover - 환경 의존
+        raise ImportError(
+            "librosa 가 필요합니다. `uv sync --extra audio` (또는 --extra all) 로 설치하세요."
+        ) from exc
+    return librosa

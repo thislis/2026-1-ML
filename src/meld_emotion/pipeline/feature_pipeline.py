@@ -13,7 +13,7 @@ from typing import Protocol, Self
 
 import numpy as np
 
-from meld_emotion.core.data import RawSample, VideoInput
+from meld_emotion.core.data import AudioInput, RawSample, VideoInput
 from meld_emotion.core.features import FeatureBundle
 from meld_emotion.core.protocols import FeatureCache, FeatureExtractor
 from meld_emotion.core.status import real
@@ -21,8 +21,10 @@ from meld_emotion.core.types import MODALITY_ORDER, BoolArray, Modality, Split
 from meld_emotion.pipeline.cache import NullFeatureCache
 
 
-class VideoLoader(Protocol):
-    """비디오 입력을 실제 프레임 텐서로 적재하는 최소 계약."""
+class MediaLoader(Protocol):
+    """원천 미디어 입력을 실제 배열로 적재하는 최소 계약."""
+
+    def load_audio(self, audio: AudioInput) -> AudioInput: ...
 
     def load_video(self, video: VideoInput) -> VideoInput: ...
 
@@ -35,13 +37,14 @@ class FeaturePipeline:
         self,
         extractors: Sequence[FeatureExtractor],
         cache: FeatureCache | None = None,
-        media_loader: VideoLoader | None = None,
+        media_loader: MediaLoader | None = None,
     ) -> None:
         if not extractors:
             raise ValueError("최소 한 개의 추출기가 필요합니다")
         self._extractors = tuple(extractors)
         self._cache: FeatureCache = cache if cache is not None else NullFeatureCache()
         self._media_loader = media_loader
+        self._needs_audio = any(e.modality == Modality.AUDIO for e in self._extractors)
         self._needs_video = any(e.modality == Modality.VIDEO for e in self._extractors)
 
     def fit(self, samples: Sequence[RawSample]) -> Self:
@@ -80,16 +83,31 @@ class FeaturePipeline:
         )
 
     def _prepare_media(self, samples: Sequence[RawSample]) -> tuple[RawSample, ...]:
-        if self._media_loader is None or not self._needs_video:
+        if self._media_loader is None or not (self._needs_audio or self._needs_video):
             return tuple(samples)
 
         prepared: list[RawSample] = []
         for sample in samples:
-            video = sample.video
-            if video is None or video.frames is not None or video.source_path is None:
-                prepared.append(sample)
-                continue
-            prepared.append(replace(sample, video=self._media_loader.load_video(video)))
+            current = sample
+            audio = current.audio
+            if (
+                self._needs_audio
+                and audio is not None
+                and audio.waveform is None
+                and audio.source_path is not None
+            ):
+                current = replace(current, audio=self._media_loader.load_audio(audio))
+
+            video = current.video
+            if (
+                self._needs_video
+                and video is not None
+                and video.frames is None
+                and video.source_path is not None
+            ):
+                current = replace(current, video=self._media_loader.load_video(video))
+
+            prepared.append(current)
         return tuple(prepared)
 
     @staticmethod
