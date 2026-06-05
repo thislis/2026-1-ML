@@ -2,8 +2,9 @@
 
 MP4 파일에서 필요한 스트림만 lazy-load 하는 얇은 경계이다. 오디오 로딩은 비디오 프레임을
 읽지 않고 waveform 만 적재하며, 비디오 로딩은 오디오를 추출하지 않고 프레임만 적재한다.
-무거운 의존성(librosa/OpenCV)은 실제 로딩 시점에만 import 해서, 텍스트/합성 데이터 실험은
-기본 환경에서도 그대로 동작하게 둔다.
+두 경로 모두 ffmpeg 를 휠에 번들한 라이브러리로 **in-process** 디코딩한다: 오디오는 PyAV
+(``av``), 비디오는 OpenCV(``cv2``). 시스템 ffmpeg·subprocess 가 필요 없다. 무거운 의존성은
+실제 로딩 시점에만 import 해서, 텍스트/합성 데이터 실험은 기본 환경에서도 그대로 동작한다.
 """
 
 from __future__ import annotations
@@ -51,20 +52,15 @@ class MediaLoader:
         if not path.exists():
             raise FileNotFoundError(f"오디오 파일을 찾을 수 없습니다: {path}")
 
-        librosa = _require_librosa()
+        av = _require_av()
         try:
-            waveform, sample_rate = librosa.load(
-                str(path),
-                sr=self._audio_sample_rate,
-                mono=True,
-            )
+            wave = _decode_audio(av, str(path), self._audio_sample_rate)
         except Exception as exc:
             raise ValueError(f"오디오 파일을 읽을 수 없습니다: {path}") from exc
 
-        wave = np.asarray(waveform, dtype=np.float64).reshape(-1)
         if wave.size == 0:
             raise ValueError(f"오디오 waveform 이 비어 있습니다: {path}")
-        return replace(audio, sample_rate=int(sample_rate), waveform=wave)
+        return replace(audio, sample_rate=self._audio_sample_rate, waveform=wave)
 
     def load_video(self, video: VideoInput) -> VideoInput:
         if video.frames is not None:
@@ -162,11 +158,33 @@ def _require_cv2() -> Any:
     return cv2
 
 
-def _require_librosa() -> Any:
+def _decode_audio(av: Any, path: str, target_sr: int) -> FloatArray:
+    """av 로 오디오 스트림만 in-process 디코딩 → mono float64 waveform.
+
+    ``AudioResampler`` 로 단일 채널·목표 샘플레이트로 맞추고, packed float(``flt``)로 받아
+    1차원 배열로 이어 붙인다. 마지막에 리샘플러를 flush 해 버퍼 잔여 샘플까지 회수한다.
+    """
+    chunks: list[FloatArray] = []
+    with av.open(path) as container:
+        if not container.streams.audio:
+            raise ValueError("오디오 스트림이 없습니다")
+        stream = container.streams.audio[0]
+        resampler = av.AudioResampler(format="flt", layout="mono", rate=target_sr)
+        for frame in container.decode(stream):
+            for out in resampler.resample(frame):
+                chunks.append(np.asarray(out.to_ndarray(), dtype=np.float64).reshape(-1))
+        for out in resampler.resample(None):  # flush
+            chunks.append(np.asarray(out.to_ndarray(), dtype=np.float64).reshape(-1))
+    if not chunks:
+        return np.zeros(0, dtype=np.float64)
+    return np.concatenate(chunks)
+
+
+def _require_av() -> Any:
     try:
-        import librosa
+        import av
     except ImportError as exc:  # pragma: no cover - 환경 의존
         raise ImportError(
-            "librosa 가 필요합니다. `uv sync --extra audio` (또는 --extra all) 로 설치하세요."
+            "PyAV 가 필요합니다. `uv sync --extra audio` (또는 --extra all) 로 설치하세요."
         ) from exc
-    return librosa
+    return av

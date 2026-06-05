@@ -11,7 +11,7 @@ dependencies = [
 
 [project.optional-dependencies]
 text = ["scikit-learn>=1.4", "sentence-transformers>=2.6"]
-audio = ["librosa>=0.10", "soundfile>=0.12"]
+audio = ["av>=11", "librosa>=0.10", "soundfile>=0.12"]
 video = ["opencv-python>=4.9", "mediapipe>=0.10"]
 xgboost = ["xgboost>=2.0"]
 all = ["meld-emotion[text,audio,video,xgboost]"]
@@ -70,6 +70,7 @@ files = ["src", "tests"]
 [[tool.mypy.overrides]]
 module = [
     "sklearn.*",
+    "av.*",
     "librosa.*",
     "soundfile.*",
     "cv2.*",

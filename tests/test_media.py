@@ -59,13 +59,55 @@ def _write_wav(path: Path, sample_rate: int = 8000) -> None:
     soundfile.write(path, waveform, sample_rate)
 
 
+def _write_mp4_with_audio(
+    path: Path, sample_rate: int = 16000, freq: float = 440.0, seconds: float = 0.5
+) -> None:
+    """av 로 AAC 오디오 트랙을 가진 mp4 를 인코딩(MELD 컨테이너 구조를 모사). 시스템 ffmpeg 불필요."""
+    av = pytest.importorskip("av")
+    frame_size = 1024  # AAC 인코더 프레임 크기
+    total = int(sample_rate * seconds)
+    total += (-total) % frame_size  # frame_size 배수로 패딩
+    t = np.arange(total, dtype=np.float32) / sample_rate
+    mono = (0.3 * np.sin(2.0 * np.pi * freq * t)).astype(np.float32)
+    with av.open(str(path), mode="w") as container:
+        stream = container.add_stream("aac", rate=sample_rate)
+        pts = 0
+        for start in range(0, mono.size, frame_size):
+            chunk = mono[start : start + frame_size]
+            frame = av.AudioFrame.from_ndarray(chunk.reshape(1, -1), format="fltp", layout="mono")
+            frame.sample_rate = sample_rate
+            frame.pts = pts
+            pts += chunk.size
+            for packet in stream.encode(frame):
+                container.mux(packet)
+        for packet in stream.encode(None):  # flush
+            container.mux(packet)
+
+
 def test_load_audio_returns_mono_float64_waveform(tmp_path: Path) -> None:
-    pytest.importorskip("librosa")
+    pytest.importorskip("av")
     path = tmp_path / "clip.wav"
     _write_wav(path)
 
     loaded = MediaLoader(audio_sample_rate=16000).load_audio(
         AudioInput(sample_rate=8000, source_path=path)
+    )
+
+    assert loaded.waveform is not None
+    assert loaded.sample_rate == 16000
+    assert loaded.waveform.ndim == 1
+    assert loaded.waveform.dtype == np.float64
+    assert loaded.waveform.size > 0
+
+
+def test_load_audio_decodes_mp4_aac_track(tmp_path: Path) -> None:
+    """MELD 처럼 AAC 오디오를 담은 mp4 를 시스템 ffmpeg 없이 av 로 디코딩한다."""
+    pytest.importorskip("av")
+    path = tmp_path / "clip.mp4"
+    _write_mp4_with_audio(path)
+
+    loaded = MediaLoader(audio_sample_rate=16000).load_audio(
+        AudioInput(sample_rate=16000, source_path=path)
     )
 
     assert loaded.waveform is not None
