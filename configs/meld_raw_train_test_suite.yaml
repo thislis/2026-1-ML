@@ -1,0 +1,139 @@
+# MELD.Raw 의 train/test CSV 로 baseline 모델들과 dialogue_rnn 을 함께 비교한다.
+# Raw MP4 의 train/test split 폴더가 서로 달라 현재 YAML 스키마만으로는 같은 실험에서
+# audio/video media subdir 를 split별로 지정할 수 없다. 이 suite 는 바로 실행 가능한
+# 텍스트 기반 비교용 설정이다.
+#
+#   uv sync --extra text --extra deep
+#   uv run meld-emotion compare --config configs/example_meld_raw_train_test_suite.yaml
+
+name: meld_raw_train_test_models
+metrics: [accuracy, macro_f1, weighted_f1]
+robustness_metric: weighted_f1
+output_path: outputs/meld_raw_train_test_models.json
+
+base:
+  train_split: train
+  eval_split: test
+
+  dataset:
+    type: meld
+    root: MELD.Raw
+    csv_train: train/train_sent_emo.csv
+    csv_dev: dev_sent_emo.csv
+    csv_test: test_sent_emo.csv
+
+  extractors:
+    - type: text_concepts
+    - type: text_bow
+      n_features: 512
+
+  evaluation:
+    metrics: [accuracy, macro_f1, weighted_f1, per_class_recall]
+    confusion: true
+    scenarios: [full, no_text]
+
+  cache:
+    type: memory
+
+  reporters: []
+
+experiments:
+  - name: majority
+    model:
+      type: early
+      base:
+        type: majority
+      use_concepts: true
+
+  - name: random
+    model:
+      type: early
+      base:
+        type: random
+        seed: 0
+      use_concepts: true
+
+  - name: early_centroid
+    model:
+      type: early
+      base:
+        type: centroid
+        temperature: 1.0
+      use_concepts: true
+
+  - name: early_linear_regression
+    model:
+      type: early
+      base:
+        type: linear_regression
+        alpha: 0.001
+        fit_intercept: true
+      use_concepts: true
+
+  - name: early_logreg
+    model:
+      type: early
+      base:
+        type: logreg
+        C: 1.0
+        max_iter: 1000
+      use_concepts: true
+
+  - name: early_svm
+    model:
+      type: early
+      base:
+        type: svm
+        C: 1.0
+        kernel: rbf
+      use_concepts: true
+
+  - name: late_centroid
+    model:
+      type: late
+      base:
+        type: centroid
+        temperature: 1.0
+      combiner:
+        type: mean
+
+  - name: dialogue_rnn
+    model:
+      type: dialogue_rnn
+      rnn_type: gru
+      modality_encoder:
+        proj_dim: 128
+        hidden_dim: 128
+        dropout: 0.2
+      fusion:
+        modality_dim: 128
+        fusion_dim: 256
+        dropout: 0.3
+        use_gated_fusion: true
+        use_interaction_features: true
+      dialogue_context:
+        speaker_emb_dim: 32
+        hidden_dim: 256
+        num_layers: 1
+        dropout: 0.3
+      memory_attention:
+        enabled: true
+        attn_dim: 256
+        use_rope: false
+        use_relative_distance_bias: true
+        use_same_speaker_bias: true
+        max_relative_distance: 32
+      classifier:
+        hidden_dim: 256
+        dropout: 0.3
+      training:
+        lr: 0.0002
+        weight_decay: 0.01
+        gradient_clip_norm: 1.0
+        batch_size: 8
+        max_epochs: 100
+        early_stopping_patience: 10
+        validation_fraction: 0.1
+        modality_dropout: 0.1
+        seed: 0
+        device: mps
