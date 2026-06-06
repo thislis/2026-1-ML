@@ -17,6 +17,8 @@
 - `protocols.py` — 단계 간 계약: `DatasetSource`, `FeatureExtractor`, `Estimator`, `Classifier`,
   `Metric`, `Explainer`, `FeatureCache`, `Reporter`, `ExperimentEvaluator`, `LabelEncoder`.
 - `status.py` — 구현 상태 마커(`@real`/`@placeholder`/`@unimplemented`)와 레지스트리.
+  `meld-emotion status` 는 `builder` import 로 구체 컴포넌트를 로드한 뒤 이 레지스트리를
+  직접 출력한다.
 
 ## 설계 메모
 
@@ -26,6 +28,8 @@
 - `FeatureBundle.utterances` 는 기본값이 빈 튜플인 호환 필드다. `FeaturePipeline` 이 채우며,
   dialogue-level 모델이 발화 행을 `[B,N]` dialogue batch 로 재구성할 때 사용한다.
 - `Estimator` 는 평범한 행렬(X, y)을, `Classifier` 는 `FeatureBundle` 을 다룬다(ISP).
+- 현재 상태 기준 `REAL 42`, `PLACEHOLDER 7`, `UNIMPLEMENTED 0` 이며, placeholder 는 실제 사용 시
+  경고를 내거나 상태표에 사유를 표시한다.
 
 ## 바꿀 일이 생기면
 

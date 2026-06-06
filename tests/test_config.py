@@ -27,7 +27,12 @@ def _complex_config() -> ExperimentConfig:
         dataset=SyntheticConfig(n_train=10),
         extractors=(TextConceptConfig(), TfidfConfig(max_features=100), MfccConfig(n_mfcc=5)),
         model=EarlyFusionConfig(base=SvmConfig(C=2.0), use_concepts=False),
-        media=MediaConfig(audio_sample_rate=8000, video_max_frames=8, video_frame_size=(32, 48)),
+        media=MediaConfig(
+            audio_sample_rate=8000,
+            video_max_frames=8,
+            video_frame_size=(32, 48),
+            max_audio_seconds=60.0,
+        ),
     )
 
 

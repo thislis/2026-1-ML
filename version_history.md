@@ -1,22 +1,194 @@
 # Version History
 
-## wav2vec2_xlsr_audio_extractor
+## ours_v2
 
-- `audio_wav2vec2_xlsr` extractor 를 추가해 MFCC placeholder 대신
-  `facebook/wav2vec2-xls-r-300m` 기반 Transformers 오디오 임베딩을 실험 설정에서 선택할 수
-  있게 했다.
-- 기본 출력은 마지막 hidden state 를 mean pooling 한 1024차원 발화 임베딩이며, 16kHz mono
-  waveform 입력을 요구한다.
-- 루트 README, features/config README 에 설치 조건(`uv sync --extra audio`)과 YAML 사용 예시를
-  반영했다.
+`ours_v2` 는 MELD.Raw 의 CSV/MP4를 이 프로젝트 파이프라인 안에서 직접 읽고,
+텍스트는 `google/embeddinggemma-300m`, 오디오는 `facebook/wav2vec2-xls-r-300m` 으로
+foundation embedding 을 추출해 early/late fusion baseline 을 비교하는 버전이다. `ours_v1` 이
+MELD 팀 제공 precomputed pickle 을 중심으로 비교했다면, `ours_v2` 는 raw MELD 경로,
+split별 media folder, lazy media loading, gated text model 인증, audio model loading, raw media
+오류 처리까지 실험 설정에 통합한 쪽이다.
 
-## embeddinggemma_text_extractor
+실행 기준 파일은 다음이다.
 
-- `text_embeddinggemma` extractor 를 추가해 BoW 대신 `google/embeddinggemma-300m` 기반
-  Sentence Transformers 임베딩을 실험 설정에서 선택할 수 있게 했다.
-- 기본 출력은 768차원이며, 128/256/512/768 차원 Matryoshka truncation 을 지원한다.
-- 루트 README, features/config README 에 설치 조건(`uv sync --extra text`), Hugging Face
-  Google Gemma 라이선스 동의 필요성, YAML 사용 예시를 반영했다.
+```bash
+/Users/safeailab_macmini/Desktop/2026-1-ML/configs/meld_embeddinggemma_wav2vec2_suite.yaml
+```
+
+재현 명령은 프로젝트 루트에서 실행한다.
+
+```bash
+cd /Users/safeailab_macmini/Desktop/2026-1-ML
+uv sync --extra text --extra audio
+uv run meld-emotion compare --config configs/meld_embeddinggemma_wav2vec2_suite.yaml
+```
+
+EmbeddingGemma 는 Hugging Face gated model 이므로 최초 실행 전 Google Gemma 라이선스 동의와
+Read token 인증이 필요하다.
+
+```bash
+uv run huggingface-cli login
+uv run huggingface-cli whoami
+```
+
+비대화형 환경에서는 `HF_TOKEN=hf_...` 로 같은 인증을 제공한다. Wav2Vec2 XLS-R 는 Hugging Face
+Transformers 와 PyTorch 가 필요하고, raw MP4 오디오는 `MediaLoader` 가 16kHz mono waveform 으로
+lazy-load 한다. 현재 장비에서는 MPS 가 사용 가능하지 않아 suite 의 두 foundation extractor 는
+`device: cpu` 로 명시한다. 첫 실행은 train/test 전체 발화에 대해 두 foundation model embedding 을
+계산하므로 오래 걸린다. 현재 `DiskFeatureCache` 는 placeholder 이고, suite 각 실험은 별도
+`ExperimentRunner` 로 조립되므로 foundation embedding 이 실험별로 다시 계산될 수 있다.
+
+### 사용 데이터와 경로
+
+`ours_v2` 는 MELD.Raw 의 CSV와 MP4를 직접 사용한다.
+
+```text
+MELD.Raw/train/train_sent_emo.csv
+MELD.Raw/dev_sent_emo.csv
+MELD.Raw/test_sent_emo.csv
+MELD.Raw/train/train_splits/
+MELD.Raw/dev_splits_complete/
+MELD.Raw/output_repeated_splits_test/
+```
+
+설정의 split 은 `train_split: train`, `eval_split: test` 이다. `MeldConfig` 에
+`audio_subdir_train`/`audio_subdir_dev`/`audio_subdir_test` 와
+`video_subdir_train`/`video_subdir_dev`/`video_subdir_test` 를 추가해 split마다 다른 MP4 폴더를
+YAML 로 지정할 수 있게 했다. 오디오와 비디오 subdir 를 모두 지정하지만, 이 suite 의 extractor 는
+text/audio 만 사용하므로 실제 lazy-load 는 오디오 waveform 에 대해서만 발생한다.
+
+MELD.Raw train split 에 PyAV 가 열 수 없는 손상 MP4 1개(`dia125_utt3.mp4`)가 있어
+`media.on_error: drop_sample` 을 사용한다. media 로딩 실패 샘플은 학습/평가에서 제외되며,
+러너 metadata 에는 raw 샘플 수(`n_train_raw`/`n_test_raw`)와 실제 특징화 후 샘플 수
+(`n_train`/`n_test`)가 함께 기록된다.
+
+MELD.Raw test split 의 `dia38_utt4.mp4` 는 실제 MP4/container 길이가 약 305초다. Wav2Vec2 는
+self-attention 메모리가 입력 길이에 대해 제곱으로 증가하므로, 이 파일을 그대로 넣으면
+55GiB 이상의 버퍼를 요청할 수 있다. `MediaConfig.max_audio_seconds` 를 추가하고 이 suite 에서는
+`max_audio_seconds: 60.0` 으로 실제 MP4 길이 1분 초과 샘플을 제외한다. 제외는 sample 단위로
+일어나므로 해당 audio 뿐 아니라 대응되는 text 도 학습·평가에 쓰이지 않는다.
+
+### 특징 추출
+
+YAML 의 extractor 는 두 개다.
+
+```yaml
+extractors:
+  - type: text_embeddinggemma
+    model_name: google/embeddinggemma-300m
+    output_dim: 768
+    batch_size: 32
+    normalize: true
+    prompt_name: Classification
+    device: cpu
+  - type: audio_wav2vec2_xlsr
+    model_name: facebook/wav2vec2-xls-r-300m
+    output_dim: 1024
+    batch_size: 1
+    sampling_rate: 16000
+    chunk_seconds: 30.0
+    normalize: true
+    device: cpu
+```
+
+`EmbeddingGemmaTextExtractor` 는 `sentence-transformers` 로 모델을 lazy-load 하고,
+`output_dim` 128/256/512/768 Matryoshka truncation 을 지원한다. 기본 prompt key 는
+대소문자를 포함해 `Classification` 이다.
+
+`Wav2Vec2XlsrAudioExtractor` 는 `facebook/wav2vec2-xls-r-300m` 이 ASR tokenizer vocab 이 없는
+base checkpoint 라는 점을 반영해 `AutoFeatureExtractor` + `Wav2Vec2Model` 로 로드한다. 마지막
+hidden state 를 attention-mask aware mean pooling 한 뒤 1024차원 발화 임베딩으로 만들고,
+설정 차원보다 모델 출력이 크면 앞 차원을 사용한다. 모델 로딩 실패 시 의존성, 모델 파일 접근성,
+16kHz mono 입력 조건을 확인할 수 있도록 원래 예외 원인을 포함해 `RuntimeError` 를 낸다.
+`chunk_seconds` 가 설정되면 긴 waveform 은 Wav2Vec2 입력 전에 여러 chunk 로 나뉘고, chunk
+임베딩은 길이 가중 평균된다.
+
+최종 early-fusion 입력 차원은 text 768 + audio 1024 = 1792다. 이 suite 에는 concept extractor 가
+없으므로 `use_concepts: false` 로 설정되어 있다.
+
+### 모델과 비교
+
+`ours_v2` suite 는 네 개 실험을 비교한다.
+
+| experiment | model type | base / 구조 |
+| --- | --- | --- |
+| `early_centroid` | early fusion | nearest centroid, temperature 1.0 |
+| `early_linear_regression` | early fusion | one-vs-rest linear regression, alpha 0.001 |
+| `early_logreg` | early fusion | StandardScaler + LogisticRegression, C 1.0, max_iter 1000 |
+| `late_centroid` | late fusion | text/audio 별 centroid 학습 후 mean probability combiner |
+
+Early fusion 은 `FeatureBundle.stack()` 으로 text/audio feature 를 concatenate 한 뒤 하나의
+estimator 를 학습한다. Late fusion 은 모달리티별 estimator 를 따로 학습하고 `MeanCombiner` 로
+확률을 평균한다. suite runner 는 일부 변형이 모델 다운로드, 인증, native library 등 외부 경계에서
+실패해도 전체 비교를 멈추지 않고 해당 outcome 의 `error` 필드에 사유를 기록한다.
+
+### 평가, 설명, 출력
+
+평가 metric 은 다음 네 개다.
+
+```text
+accuracy
+macro_f1
+weighted_f1
+per_class_recall
+```
+
+confusion matrix 도 저장한다. suite 비교표에는 `accuracy`, `macro_f1`, `weighted_f1` 를 표시하고,
+robustness 비교 기준은 `weighted_f1` 이다. 강건성 시나리오는 다음 세 개다.
+
+```text
+full
+no_text
+no_audio
+```
+
+`mask_bundle` 은 제거된 모달리티의 feature matrix 를 0으로 만들고 availability 를 false 로
+바꾼다. 설명기는 `modality_ablation` 하나를 켜 두었고, weighted F1 하락폭으로 text/audio
+모달리티 기여도를 기록한다.
+
+주요 결과 파일은 다음이다.
+
+```text
+outputs/meld_embeddinggemma_wav2vec2_models.json
+```
+
+파일은 `ComparisonReport` 직렬화 결과이며, 성공한 실험은 `result`, 실패한 실험은 `error` 를
+담는다. 모델 접근 권한이나 네트워크/캐시 상태가 준비되지 않은 환경에서는 Wav2Vec2 또는
+EmbeddingGemma 로딩 실패가 `error` 로 남을 수 있다.
+
+### 테스트와 검증 정책
+
+기본 회귀 테스트는 다음 명령으로 실행한다.
+
+```bash
+uv run python -m pytest -q
+uv run mypy src
+uv run ruff check .
+```
+
+macOS arm64 에서 PyTorch 와 XGBoost native library 가 서로 다른 OpenMP(`libomp`) 런타임을 같은
+Python 프로세스에 올릴 때 segfault 가 재현되어, XGBoost native 테스트는 `xgboost_native`
+pytest marker 로 기본 테스트에서 제외했다. XGBoost 검증은 별도 프로세스에서 실행한다.
+
+```bash
+uv sync --extra xgboost
+uv run python -m pytest -q -m xgboost_native
+```
+
+`tests/test_meld_embeddinggemma_wav2vec2_config.py` 는 suite YAML 이 실제
+`EmbeddingGemmaTextExtractor` 와 `Wav2Vec2XlsrAudioExtractor` 를 빌드하는지, MELD.Raw 의
+train/dev/test media path 가 실제 파일을 가리키는지 확인한다.
+
+### ours_v2의 명확한 한계
+
+- video feature 는 아직 사용하지 않는다. `video_subdir_*` 는 raw MELD 경로 정합성을 위해 지정돼
+  있지만 extractor 목록에는 video 가 없다.
+- foundation embedding 계산 결과를 실행 간 영속화하는 disk cache 는 아직 placeholder 다.
+- EmbeddingGemma/Wav2Vec2 모델 다운로드와 Hugging Face 접근 권한은 실행 환경에 의존한다.
+- raw audio foundation embedding 은 구현됐지만 MFCC placeholder, visual cue placeholder,
+  sentence embedding placeholder, TF-IDF placeholder 는 아직 실제 구현으로 교체되지 않았다.
+- 이 suite 는 dialogue-level PyTorch 모델을 포함하지 않는다. dialogue context 실험은
+  `configs/example_meld_dialogue_rnn.yaml` 또는 `ours_v1` 의 precomputed-feature suite 가 기준이다.
 
 ## ours_v1
 

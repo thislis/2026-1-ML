@@ -16,8 +16,6 @@ from meld_emotion.features.audio import Wav2Vec2XlsrAudioExtractor
 from meld_emotion.features.audio import wav2vec2 as wav2vec2_module
 from meld_emotion.pipeline.builder import build_extractor
 
-torch = pytest.importorskip("torch")
-
 
 def _sample(waveform: np.ndarray | None, uid: str = "x", sample_rate: int = 16000) -> RawSample:
     audio = AudioInput(sample_rate=sample_rate, waveform=waveform) if waveform is not None else None
@@ -35,6 +33,7 @@ def _sample(waveform: np.ndarray | None, uid: str = "x", sample_rate: int = 1600
 
 class _FakeProcessor:
     created: ClassVar[list[str]] = []
+    seen_lengths: ClassVar[list[int]] = []
 
     @classmethod
     def from_pretrained(cls, model_name: str):
@@ -42,7 +41,9 @@ class _FakeProcessor:
         return cls()
 
     def __call__(self, waveforms, **kwargs):
+        torch = pytest.importorskip("torch")
         waves = list(waveforms)
+        self.seen_lengths.extend(len(wave) for wave in waves)
         max_len = max((len(wave) for wave in waves), default=0)
         input_values = torch.zeros((len(waves), max_len), dtype=torch.float32)
         attention_mask = torch.zeros((len(waves), max_len), dtype=torch.long)
@@ -70,19 +71,41 @@ class _FakeModel:
         return self
 
     def __call__(self, **inputs):
+        torch = pytest.importorskip("torch")
         n = int(inputs["input_values"].shape[0])
         values = torch.arange(n * 2 * 1024, dtype=torch.float32).reshape(n, 2, 1024) + 1.0
         return SimpleNamespace(last_hidden_state=values)
 
     def _get_feature_vector_attention_mask(self, length: int, attention_mask):
+        torch = pytest.importorskip("torch")
         masks = torch.ones((attention_mask.shape[0], length), dtype=torch.long)
         if masks.shape[0] > 1:
             masks[1, 1:] = 0
         return masks
 
 
+def test_wav2vec2_loads_transformers_lazy_exports(monkeypatch) -> None:
+    class _LazyTransformersModule:
+        def __getattr__(self, name: str):
+            if name == "AutoFeatureExtractor":
+                return _FakeProcessor
+            if name == "Wav2Vec2Model":
+                return _FakeModel
+            raise AttributeError(name)
+
+    def fake_import_module(name: str):
+        assert name == "transformers"
+        return _LazyTransformersModule()
+
+    monkeypatch.setattr(wav2vec2_module, "import_module", fake_import_module)
+
+    assert wav2vec2_module._load_transformers_classes() == (_FakeProcessor, _FakeModel)
+
+
 def test_wav2vec2_transform_uses_transformers(monkeypatch) -> None:
+    torch = pytest.importorskip("torch")
     _FakeProcessor.created = []
+    _FakeProcessor.seen_lengths = []
     _FakeModel.created = []
     monkeypatch.setattr(
         wav2vec2_module,
@@ -112,6 +135,54 @@ def test_wav2vec2_transform_uses_transformers(monkeypatch) -> None:
     assert np.allclose(matrix.values[2:], 0.0)
 
 
+def test_wav2vec2_truncates_overlong_waveforms(monkeypatch) -> None:
+    torch = pytest.importorskip("torch")
+    _FakeProcessor.created = []
+    _FakeProcessor.seen_lengths = []
+    _FakeModel.created = []
+    monkeypatch.setattr(
+        wav2vec2_module,
+        "_load_transformers_classes",
+        lambda: (_FakeProcessor, _FakeModel),
+    )
+    monkeypatch.setattr(wav2vec2_module, "_load_torch_module", lambda: torch)
+
+    extractor = Wav2Vec2XlsrAudioExtractor(
+        batch_size=1,
+        sampling_rate=10,
+        max_seconds=0.5,
+        device="cpu",
+    )
+    matrix = extractor.transform([_sample(np.ones(20, dtype=np.float64), "long", sample_rate=10)])
+
+    assert matrix.values.shape == (1, 1024)
+    assert _FakeProcessor.seen_lengths == [5]
+
+
+def test_wav2vec2_chunks_long_waveforms_without_dropping_tail(monkeypatch) -> None:
+    torch = pytest.importorskip("torch")
+    _FakeProcessor.created = []
+    _FakeProcessor.seen_lengths = []
+    _FakeModel.created = []
+    monkeypatch.setattr(
+        wav2vec2_module,
+        "_load_transformers_classes",
+        lambda: (_FakeProcessor, _FakeModel),
+    )
+    monkeypatch.setattr(wav2vec2_module, "_load_torch_module", lambda: torch)
+
+    extractor = Wav2Vec2XlsrAudioExtractor(
+        batch_size=2,
+        sampling_rate=10,
+        chunk_seconds=0.5,
+        device="cpu",
+    )
+    matrix = extractor.transform([_sample(np.ones(12, dtype=np.float64), "long", sample_rate=10)])
+
+    assert matrix.values.shape == (1, 1024)
+    assert _FakeProcessor.seen_lengths == [5, 5, 2]
+
+
 def test_wav2vec2_empty_transform_does_not_load_model(monkeypatch) -> None:
     def fail_load():
         raise AssertionError("empty transform should not load the model")
@@ -137,6 +208,8 @@ def test_wav2vec2_config_roundtrip_and_builder() -> None:
                 output_dim=512,
                 batch_size=2,
                 sampling_rate=16000,
+                max_seconds=30.0,
+                chunk_seconds=15.0,
                 normalize=False,
                 device="mps",
             ),

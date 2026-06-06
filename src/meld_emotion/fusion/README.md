@@ -12,6 +12,8 @@ Early/Late fusion 은 동일한 `Classifier` 계약(`fit(bundle,y)`/`predict`/`p
   결합 시 모달리티 **가용성**을 가중치에 곱해 누락 모달리티를 자동 제외.
 - `masking.py` — `ModalityScenario` + 사전 정의 시나리오(`full`, `text_only`, `no_text`, ...),
   `mask_bundle`(시나리오에 맞춰 특징 0·가용성 False), `ModalityDropout`(학습 시 증강, 완전 구현).
+  현재 기본 시나리오는 `full`, `text_only`, `audio_only`, `video_only`, `no_text`, `no_audio`,
+  `no_video` 다.
 
 ## 새 융합/결합기/시나리오 추가하기
 
@@ -26,3 +28,5 @@ Early/Late fusion 은 동일한 `Classifier` 계약(`fit(bundle,y)`/`predict`/`p
 
 - Late fusion 의 기초 학습기 팩토리는 모달리티 수만큼 호출되므로 매번 새 인스턴스를 반환해야 한다.
 - 강건성 평가(evaluation/robustness)는 `mask_bundle` 을 그대로 재사용한다.
+- `ModalityDropout` 은 학습 bundle 에만 적용된다. 평가 시 누락 실험은 `evaluation.scenarios` 로
+  지정한 `ModalityScenario` 가 담당한다.

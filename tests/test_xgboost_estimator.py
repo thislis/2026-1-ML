@@ -5,8 +5,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-pytest.importorskip("xgboost", reason="xgboost 미설치 (uv sync --extra xgboost 로 설치)")
-
 from meld_emotion.config.schema import (
     EarlyFusionConfig,
     ExperimentConfig,
@@ -16,6 +14,9 @@ from meld_emotion.config.schema import (
 from meld_emotion.core.protocols import Estimator
 from meld_emotion.models.xgboost_estimators import XGBoostEstimator
 from meld_emotion.pipeline.builder import build_experiment
+
+pytestmark = pytest.mark.xgboost_native
+pytest.importorskip("xgboost", reason="xgboost 미설치 (uv sync --extra xgboost 로 설치)")
 
 _N_EMOTIONS = 7
 

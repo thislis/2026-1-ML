@@ -53,7 +53,7 @@ def test_embeddinggemma_transform_uses_sentence_transformer(monkeypatch) -> None
     assert created == [("google/embeddinggemma-300m", {"device": "cpu"})]
     assert fake.calls[0][0] == ["hello", "world"]
     assert fake.calls[0][1]["batch_size"] == 4
-    assert fake.calls[0][1]["prompt_name"] == "classification"
+    assert fake.calls[0][1]["prompt_name"] == "Classification"
     assert fake.calls[0][1]["normalize_embeddings"] is True
     assert matrix.values.shape == (2, 128)
     assert matrix.names == tuple(f"embeddinggemma_{i}" for i in range(128))

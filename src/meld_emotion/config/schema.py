@@ -53,6 +53,12 @@ class MeldConfig(DatasetConfig):
     csv_test: str = "test_sent_emo.csv"
     audio_subdir: str = "audio"
     video_subdir: str = "video"
+    audio_subdir_train: str | None = None
+    audio_subdir_dev: str | None = None
+    audio_subdir_test: str | None = None
+    video_subdir_train: str | None = None
+    video_subdir_dev: str | None = None
+    video_subdir_test: str | None = None
     metadata_path: str | None = None
 
 
@@ -99,7 +105,7 @@ class EmbeddingGemmaTextConfig(ExtractorConfig):
     output_dim: int = 768
     batch_size: int = 32
     normalize: bool = True
-    prompt_name: str | None = "classification"
+    prompt_name: str | None = "Classification"
     device: str | None = None
 
 
@@ -121,6 +127,8 @@ class Wav2Vec2XlsrAudioConfig(ExtractorConfig):
     output_dim: int = 1024
     batch_size: int = 4
     sampling_rate: int = 16000
+    max_seconds: float | None = None
+    chunk_seconds: float | None = 30.0
     normalize: bool = True
     device: str | None = None
 
@@ -393,6 +401,8 @@ class MediaConfig:
     audio_sample_rate: int = 16000
     video_max_frames: int = 32
     video_frame_size: tuple[int, int] = (64, 64)  # (height, width)
+    on_error: str = "raise"  # raise | drop_modality | drop_sample
+    max_audio_seconds: float | None = None  # 초과 시 샘플 전체 제외
 
 
 # --- 설명(Explainer) -----------------------------------------------------------

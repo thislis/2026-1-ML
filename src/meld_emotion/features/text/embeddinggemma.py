@@ -60,7 +60,7 @@ class EmbeddingGemmaTextExtractor(BaseFeatureExtractor):
         output_dim: int = 768,
         batch_size: int = 32,
         normalize: bool = True,
-        prompt_name: str | None = "classification",
+        prompt_name: str | None = "Classification",
         device: str | None = None,
     ) -> None:
         if output_dim not in _SUPPORTED_OUTPUT_DIMS:

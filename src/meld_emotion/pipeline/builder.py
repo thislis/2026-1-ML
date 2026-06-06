@@ -147,6 +147,12 @@ def build_dataset(config: DatasetConfig) -> DatasetSource:
             csv_test=config.csv_test,
             audio_subdir=config.audio_subdir,
             video_subdir=config.video_subdir,
+            audio_subdir_train=config.audio_subdir_train,
+            audio_subdir_dev=config.audio_subdir_dev,
+            audio_subdir_test=config.audio_subdir_test,
+            video_subdir_train=config.video_subdir_train,
+            video_subdir_dev=config.video_subdir_dev,
+            video_subdir_test=config.video_subdir_test,
             metadata_path=config.metadata_path,
         )
     raise ValueError(f"알 수 없는 데이터셋 설정: {type(config).__name__}")
@@ -180,6 +186,8 @@ def build_extractor(config: ExtractorConfig) -> FeatureExtractor:
             output_dim=config.output_dim,
             batch_size=config.batch_size,
             sampling_rate=config.sampling_rate,
+            max_seconds=config.max_seconds,
+            chunk_seconds=config.chunk_seconds,
             normalize=config.normalize,
             device=config.device,
         )
@@ -323,8 +331,14 @@ def build_experiment(config: ExperimentConfig) -> ExperimentRunner:
         audio_sample_rate=config.media.audio_sample_rate,
         video_max_frames=config.media.video_max_frames,
         video_frame_size=config.media.video_frame_size,
+        max_audio_seconds=config.media.max_audio_seconds,
     )
-    feature_pipeline = FeaturePipeline(extractors, build_cache(config.cache), media_loader)
+    feature_pipeline = FeaturePipeline(
+        extractors,
+        build_cache(config.cache),
+        media_loader,
+        media_error_policy=config.media.on_error,
+    )
     classifier = build_classifier(config.model, encoder.classes)
 
     metrics = [build_metric(name) for name in config.evaluation.metrics]
