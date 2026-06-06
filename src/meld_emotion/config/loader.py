@@ -149,6 +149,8 @@ def _media(data: Mapping[str, Any]) -> MediaConfig:
         kwargs["on_error"] = str(data["on_error"])
     if "max_audio_seconds" in data and data["max_audio_seconds"] is not None:
         kwargs["max_audio_seconds"] = float(data["max_audio_seconds"])
+    if "min_audio_seconds" in data and data["min_audio_seconds"] is not None:
+        kwargs["min_audio_seconds"] = float(data["min_audio_seconds"])
     return MediaConfig(**kwargs)
 
 

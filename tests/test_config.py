@@ -32,6 +32,7 @@ def _complex_config() -> ExperimentConfig:
             video_max_frames=8,
             video_frame_size=(32, 48),
             max_audio_seconds=60.0,
+            min_audio_seconds=0.025,
         ),
     )
 

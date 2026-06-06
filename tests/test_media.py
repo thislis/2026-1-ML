@@ -165,6 +165,22 @@ def test_load_audio_rejects_overlong_source_media(tmp_path: Path) -> None:
         )
 
 
+def test_load_audio_rejects_too_short_selected_segment(tmp_path: Path) -> None:
+    pytest.importorskip("av")
+    path = tmp_path / "short.mp4"
+    _write_mp4_with_audio(path, seconds=0.1)
+
+    with pytest.raises(ValueError, match="허용 하한"):
+        MediaLoader(audio_sample_rate=16000, min_audio_seconds=0.05).load_audio(
+            AudioInput(
+                sample_rate=16000,
+                source_path=path,
+                segment_start=0.0,
+                segment_end=0.01,
+            )
+        )
+
+
 def test_load_video_defaults_to_64_square_frames(tmp_path: Path) -> None:
     path = tmp_path / "clip.mp4"
     _write_mp4(path)

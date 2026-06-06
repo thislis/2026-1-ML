@@ -149,6 +149,8 @@ raw media 오류 처리는 `media.on_error` 로 조정한다. 기본값 `raise` 
 `media.max_audio_seconds` 를 지정하면 실제 MP4/container 길이가 그 값을 초과하는 audio media 를
 로딩 실패로 처리한다. `drop_sample` 정책과 함께 쓰면 버퍼 용량 부족을 일으키는 긴 MP4와 그에
 대응되는 text 가 모두 학습·평가에서 제외된다.
+`media.min_audio_seconds` 는 CSV 구간 선택 후 너무 짧은 waveform 을 같은 방식으로 제외해
+Wav2Vec2 convolution kernel 오류를 피한다.
 
 MELD.Raw 의 train/test MP4 폴더가 split 별로 다른 경우에는 `MeldConfig` 에 split별 media
 subdir 를 지정한다. EmbeddingGemma 텍스트 임베딩과 Wav2Vec2 XLS-R 오디오 임베딩을 함께 쓰는
@@ -171,6 +173,7 @@ dataset:
 media:
   on_error: drop_sample
   max_audio_seconds: 60.0
+  min_audio_seconds: 0.025
 ```
 
 ## 주의

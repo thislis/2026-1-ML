@@ -332,6 +332,7 @@ def build_experiment(config: ExperimentConfig) -> ExperimentRunner:
         video_max_frames=config.media.video_max_frames,
         video_frame_size=config.media.video_frame_size,
         max_audio_seconds=config.media.max_audio_seconds,
+        min_audio_seconds=config.media.min_audio_seconds,
     )
     feature_pipeline = FeaturePipeline(
         extractors,

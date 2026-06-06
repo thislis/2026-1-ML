@@ -34,6 +34,7 @@ class MediaLoader:
         video_max_frames: int = 32,
         video_frame_size: tuple[int, int] = (64, 64),
         max_audio_seconds: float | None = None,
+        min_audio_seconds: float | None = None,
     ) -> None:
         if audio_sample_rate <= 0:
             raise ValueError("audio_sample_rate 는 양의 정수여야 합니다")
@@ -41,10 +42,19 @@ class MediaLoader:
             raise ValueError("video_max_frames 는 양의 정수여야 합니다")
         if max_audio_seconds is not None and max_audio_seconds <= 0.0:
             raise ValueError("max_audio_seconds 는 양수이거나 None 이어야 합니다")
+        if min_audio_seconds is not None and min_audio_seconds <= 0.0:
+            raise ValueError("min_audio_seconds 는 양수이거나 None 이어야 합니다")
+        if (
+            max_audio_seconds is not None
+            and min_audio_seconds is not None
+            and min_audio_seconds > max_audio_seconds
+        ):
+            raise ValueError("min_audio_seconds 는 max_audio_seconds 보다 클 수 없습니다")
         self._audio_sample_rate = audio_sample_rate
         self._video_max_frames = video_max_frames
         self._video_frame_size = _validate_frame_size(video_frame_size)
         self._max_audio_seconds = max_audio_seconds
+        self._min_audio_seconds = min_audio_seconds
 
     def load_audio(self, audio: AudioInput) -> AudioInput:
         if audio.waveform is not None:
@@ -76,6 +86,12 @@ class MediaLoader:
 
         if wave.size == 0:
             raise ValueError(f"오디오 waveform 이 비어 있습니다: {path}")
+        selected_duration = wave.size / self._audio_sample_rate
+        if self._min_audio_seconds is not None and selected_duration < self._min_audio_seconds:
+            raise ValueError(
+                "오디오 구간 길이가 허용 하한보다 짧습니다: "
+                f"{path} ({selected_duration:.6f}s < {self._min_audio_seconds:.6f}s)"
+            )
         return replace(audio, sample_rate=self._audio_sample_rate, waveform=wave)
 
     def load_video(self, video: VideoInput) -> VideoInput:

@@ -403,6 +403,7 @@ class MediaConfig:
     video_frame_size: tuple[int, int] = (64, 64)  # (height, width)
     on_error: str = "raise"  # raise | drop_modality | drop_sample
     max_audio_seconds: float | None = None  # 초과 시 샘플 전체 제외
+    min_audio_seconds: float | None = None  # 미만 시 샘플 전체 제외
 
 
 # --- 설명(Explainer) -----------------------------------------------------------

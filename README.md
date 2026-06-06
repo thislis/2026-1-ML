@@ -94,7 +94,7 @@ uv run meld-emotion compare --config configs/meld_embeddinggemma_wav2vec2_suite.
 해당 발화는 텍스트/오디오 특징 모두 학습/평가에서 제외된다.
 오디오는 CSV 의 `StartTime`/`EndTime` 구간을 사용한다. 실제 MP4 파일 길이가 60초를 넘으면
 Wav2Vec2 self-attention buffer 용량 부족을 피하기 위해 샘플 전체를 제외하므로, 해당 text 도
-학습·평가에 쓰이지 않는다.
+학습·평가에 쓰이지 않는다. 또한 Wav2Vec2 convolution 최소 입력 길이보다 짧은 구간도 제외한다.
 비교 대상은 `early_centroid`, `early_linear_regression`, `early_logreg`, `late_centroid` 이며,
 평가 시나리오는 `full`, `no_text`, `no_audio` 다. `modality_ablation` 설명기도 켜져 있어
 weighted F1 기준 모달리티별 기여도를 함께 남긴다. 출력 파일은

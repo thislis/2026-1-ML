@@ -67,6 +67,8 @@ self-attention 메모리가 입력 길이에 대해 제곱으로 증가하므로
 55GiB 이상의 버퍼를 요청할 수 있다. `MediaConfig.max_audio_seconds` 를 추가하고 이 suite 에서는
 `max_audio_seconds: 60.0` 으로 실제 MP4 길이 1분 초과 샘플을 제외한다. 제외는 sample 단위로
 일어나므로 해당 audio 뿐 아니라 대응되는 text 도 학습·평가에 쓰이지 않는다.
+또한 `min_audio_seconds: 0.025` 를 추가해 CSV 구간 선택 후 Wav2Vec2 convolution 최소 입력보다
+짧은 샘플도 같은 방식으로 제외한다.
 
 ### 특징 추출
 

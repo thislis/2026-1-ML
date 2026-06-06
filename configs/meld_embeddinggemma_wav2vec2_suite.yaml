@@ -43,6 +43,8 @@ base:
     on_error: drop_sample
     # 실제 MP4 길이 기준 1분 초과 파일은 Wav2Vec2 buffer 용량 부족을 피하기 위해 제외한다.
     max_audio_seconds: 60.0
+    # Wav2Vec2 convolution stack 최소 입력 길이(약 400 samples @ 16kHz)보다 짧은 구간도 제외한다.
+    min_audio_seconds: 0.025
 
   extractors:
     - type: text_embeddinggemma
@@ -110,3 +112,44 @@ experiments:
         temperature: 1.0
       combiner:
         type: mean
+
+  - name: dialogue_rnn
+    model:
+      type: dialogue_rnn
+      rnn_type: gru
+      modality_encoder:
+        proj_dim: 128
+        hidden_dim: 128
+        dropout: 0.2
+      fusion:
+        modality_dim: 128
+        fusion_dim: 256
+        dropout: 0.3
+        use_gated_fusion: true
+        use_interaction_features: true
+      dialogue_context:
+        speaker_emb_dim: 32
+        hidden_dim: 256
+        num_layers: 1
+        dropout: 0.3
+      memory_attention:
+        enabled: true
+        attn_dim: 256
+        use_rope: false
+        use_relative_distance_bias: true
+        use_same_speaker_bias: true
+        max_relative_distance: 32
+      classifier:
+        hidden_dim: 256
+        dropout: 0.3
+      training:
+        lr: 0.0002
+        weight_decay: 0.01
+        gradient_clip_norm: 1.0
+        batch_size: 8
+        max_epochs: 100
+        early_stopping_patience: 10
+        validation_fraction: 0.1
+        modality_dropout: 0.1
+        seed: 0
+        device: mps
