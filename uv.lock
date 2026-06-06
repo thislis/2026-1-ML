@@ -1175,12 +1175,15 @@ all = [
     { name = "sentence-transformers" },
     { name = "soundfile" },
     { name = "torch" },
+    { name = "transformers" },
     { name = "xgboost" },
 ]
 audio = [
     { name = "av" },
     { name = "librosa" },
     { name = "soundfile" },
+    { name = "torch" },
+    { name = "transformers" },
 ]
 deep = [
     { name = "torch" },
@@ -1194,6 +1197,7 @@ dev = [
 text = [
     { name = "scikit-learn" },
     { name = "sentence-transformers" },
+    { name = "transformers" },
 ]
 video = [
     { name = "mediapipe" },
@@ -1218,7 +1222,10 @@ requires-dist = [
     { name = "scikit-learn", marker = "extra == 'text'", specifier = ">=1.4" },
     { name = "sentence-transformers", marker = "extra == 'text'", specifier = ">=2.6" },
     { name = "soundfile", marker = "extra == 'audio'", specifier = ">=0.12" },
+    { name = "torch", marker = "extra == 'audio'", specifier = ">=2.2" },
     { name = "torch", marker = "extra == 'deep'", specifier = ">=2.2" },
+    { name = "transformers", marker = "extra == 'audio'", specifier = ">=4.56" },
+    { name = "transformers", marker = "extra == 'text'", specifier = ">=4.56" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0" },
     { name = "xgboost", marker = "extra == 'xgboost'", specifier = ">=2.0" },
 ]

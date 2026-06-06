@@ -10,8 +10,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-text = ["scikit-learn>=1.4", "sentence-transformers>=2.6"]
-audio = ["av>=11", "librosa>=0.10", "soundfile>=0.12"]
+text = ["scikit-learn>=1.4", "sentence-transformers>=2.6", "transformers>=4.56"]
+audio = ["av>=11", "librosa>=0.10", "soundfile>=0.12", "transformers>=4.56", "torch>=2.2"]
 video = ["opencv-python>=4.9", "mediapipe>=0.10"]
 xgboost = ["xgboost>=2.0"]
 deep = ["torch>=2.2"]
@@ -77,6 +77,7 @@ module = [
     "cv2.*",
     "mediapipe.*",
     "sentence_transformers.*",
+    "transformers.*",
     "xgboost.*",
     "torch",
     "torch.*",
@@ -93,7 +94,10 @@ disallow_any_generics = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q --strict-markers"
+addopts = "-q --strict-markers -m 'not xgboost_native'"
+markers = [
+    "xgboost_native: tests that exercise XGBoost's native library; run in a separate pytest process on macOS to avoid OpenMP runtime collisions with PyTorch.",
+]
 filterwarnings = [
     # Placeholder components emit RuntimeWarning by design; keep them visible but non-fatal.
     "default",

@@ -33,14 +33,18 @@ class MediaLoader:
         audio_sample_rate: int = 16000,
         video_max_frames: int = 32,
         video_frame_size: tuple[int, int] = (64, 64),
+        max_audio_seconds: float | None = None,
     ) -> None:
         if audio_sample_rate <= 0:
             raise ValueError("audio_sample_rate 는 양의 정수여야 합니다")
         if video_max_frames <= 0:
             raise ValueError("video_max_frames 는 양의 정수여야 합니다")
+        if max_audio_seconds is not None and max_audio_seconds <= 0.0:
+            raise ValueError("max_audio_seconds 는 양수이거나 None 이어야 합니다")
         self._audio_sample_rate = audio_sample_rate
         self._video_max_frames = video_max_frames
         self._video_frame_size = _validate_frame_size(video_frame_size)
+        self._max_audio_seconds = max_audio_seconds
 
     def load_audio(self, audio: AudioInput) -> AudioInput:
         if audio.waveform is not None:
@@ -53,10 +57,22 @@ class MediaLoader:
             raise FileNotFoundError(f"오디오 파일을 찾을 수 없습니다: {path}")
 
         av = _require_av()
+        duration = _audio_duration_seconds(av, str(path))
+        if self._max_audio_seconds is not None and duration > self._max_audio_seconds:
+            raise ValueError(
+                "오디오 파일 길이가 허용 한도를 초과합니다: "
+                f"{path} ({duration:.3f}s > {self._max_audio_seconds:.3f}s)"
+            )
         try:
             wave = _decode_audio(av, str(path), self._audio_sample_rate)
         except Exception as exc:
             raise ValueError(f"오디오 파일을 읽을 수 없습니다: {path}") from exc
+        wave = _select_segment(
+            wave,
+            self._audio_sample_rate,
+            audio.segment_start,
+            audio.segment_end,
+        )
 
         if wave.size == 0:
             raise ValueError(f"오디오 waveform 이 비어 있습니다: {path}")
@@ -178,6 +194,47 @@ def _decode_audio(av: Any, path: str, target_sr: int) -> FloatArray:
     if not chunks:
         return np.zeros(0, dtype=np.float64)
     return np.concatenate(chunks)
+
+
+def _audio_duration_seconds(av: Any, path: str) -> float:
+    with av.open(path) as container:
+        if container.duration is not None:
+            return float(container.duration) / 1_000_000.0
+        if not container.streams.audio:
+            raise ValueError("오디오 스트림이 없습니다")
+        stream = container.streams.audio[0]
+        if stream.duration is not None:
+            return float(stream.duration * stream.time_base)
+    return 0.0
+
+
+def _select_segment(
+    wave: FloatArray,
+    sample_rate: int,
+    start: float | None,
+    end: float | None,
+) -> FloatArray:
+    if start is None or end is None:
+        return wave
+    if end <= start:
+        raise ValueError(f"오디오 구간 end 는 start 보다 커야 합니다: {start} >= {end}")
+
+    duration = wave.size / sample_rate
+    segment_duration = end - start
+    tolerance = max(0.25, min(1.0, segment_duration * 0.05))
+
+    if end <= duration + tolerance:
+        start_index = max(0, int(round(start * sample_rate)))
+        end_index = min(wave.size, int(round(end * sample_rate)))
+        return wave[start_index:end_index]
+
+    if abs(duration - segment_duration) <= tolerance:
+        return wave
+
+    segment_samples = int(round(segment_duration * sample_rate))
+    if 0 < segment_samples <= wave.size:
+        return wave[:segment_samples]
+    return wave
 
 
 def _require_av() -> Any:

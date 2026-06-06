@@ -27,12 +27,28 @@ class MeldDatasetSource:
         csv_test: str = "test_sent_emo.csv",
         audio_subdir: str = "audio",
         video_subdir: str = "video",
+        audio_subdir_train: str | None = None,
+        audio_subdir_dev: str | None = None,
+        audio_subdir_test: str | None = None,
+        video_subdir_train: str | None = None,
+        video_subdir_dev: str | None = None,
+        video_subdir_test: str | None = None,
         metadata_path: str | None = None,
     ) -> None:
         self._root = Path(root)
         self._csv = {Split.TRAIN: csv_train, Split.DEV: csv_dev, Split.TEST: csv_test}
         self._audio_subdir = audio_subdir
         self._video_subdir = video_subdir
+        self._audio_subdirs = {
+            Split.TRAIN: audio_subdir_train,
+            Split.DEV: audio_subdir_dev,
+            Split.TEST: audio_subdir_test,
+        }
+        self._video_subdirs = {
+            Split.TRAIN: video_subdir_train,
+            Split.DEV: video_subdir_dev,
+            Split.TEST: video_subdir_test,
+        }
         self._metadata_path = Path(metadata_path) if metadata_path is not None else None
         self._metadata: tuple[Mapping[str, object], ...] | None = None
 
@@ -88,6 +104,8 @@ class MeldDatasetSource:
             for row in reader:
                 dialogue_id = int(row["Dialogue_ID"])
                 utterance_id = int(row["Utterance_ID"])
+                start_time = row.get("StartTime", "")
+                end_time = row.get("EndTime", "")
                 yield RawSample(
                     uid=_uid(split, dialogue_id, utterance_id),
                     dialogue_id=dialogue_id,
@@ -98,21 +116,38 @@ class MeldDatasetSource:
                     mask=ModalityMask.full(),
                     audio=AudioInput(
                         sample_rate=16000,
-                        source_path=self._root / self._audio_subdir / _clip_name(dialogue_id, utterance_id),
+                        source_path=self._media_path(
+                            split, self._audio_subdirs, self._audio_subdir, dialogue_id, utterance_id
+                        ),
+                        segment_start=_parse_meld_time(start_time),
+                        segment_end=_parse_meld_time(end_time),
                     ),
                     video=VideoInput(
                         fps=25.0,
-                        source_path=self._root / self._video_subdir / _clip_name(dialogue_id, utterance_id),
+                        source_path=self._media_path(
+                            split, self._video_subdirs, self._video_subdir, dialogue_id, utterance_id
+                        ),
                     ),
                     emotion=Emotion(row["Emotion"]),
                     sentiment=Sentiment(row["Sentiment"]),
                     metadata={
                         "season": row.get("Season", ""),
                         "episode": row.get("Episode", ""),
-                        "start_time": row.get("StartTime", ""),
-                        "end_time": row.get("EndTime", ""),
+                        "start_time": start_time,
+                        "end_time": end_time,
                     },
                 )
+
+    def _media_path(
+        self,
+        split: Split,
+        split_subdirs: Mapping[Split, str | None],
+        fallback_subdir: str,
+        dialogue_id: int,
+        utterance_id: int,
+    ) -> Path:
+        subdir = split_subdirs[split] or fallback_subdir
+        return self._root / subdir / _clip_name(dialogue_id, utterance_id)
 
 
 def _uid(split: Split, dialogue_id: int, utterance_id: int) -> str:
@@ -121,6 +156,19 @@ def _uid(split: Split, dialogue_id: int, utterance_id: int) -> str:
 
 def _clip_name(dialogue_id: int, utterance_id: int) -> str:
     return f"dia{dialogue_id}_utt{utterance_id}.mp4"
+
+
+def _parse_meld_time(value: str) -> float | None:
+    text = value.strip().strip('"')
+    if not text:
+        return None
+    clock, _, millis = text.partition(",")
+    parts = clock.split(":")
+    if len(parts) != 3:
+        raise ValueError(f"MELD 시간 형식이 올바르지 않습니다: {value!r}")
+    hours, minutes, seconds = (int(part) for part in parts)
+    milliseconds = int(millis) if millis else 0
+    return float(hours * 3600 + minutes * 60 + seconds) + milliseconds / 1000.0
 
 
 def _expect_mapping(value: Any) -> Mapping[str, object]:

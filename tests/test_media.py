@@ -21,9 +21,10 @@ def _media_sample(
     path: Path,
     waveform: np.ndarray | None = None,
     frames: np.ndarray | None = None,
+    uid: str = "v",
 ) -> RawSample:
     return RawSample(
-        uid="v",
+        uid=uid,
         dialogue_id=1,
         utterance_id=2,
         text="hello",
@@ -115,6 +116,53 @@ def test_load_audio_decodes_mp4_aac_track(tmp_path: Path) -> None:
     assert loaded.waveform.ndim == 1
     assert loaded.waveform.dtype == np.float64
     assert loaded.waveform.size > 0
+
+
+def test_load_audio_uses_relative_segment_bounds(tmp_path: Path) -> None:
+    pytest.importorskip("av")
+    path = tmp_path / "clip.mp4"
+    _write_mp4_with_audio(path, seconds=2.0)
+
+    loaded = MediaLoader(audio_sample_rate=16000).load_audio(
+        AudioInput(
+            sample_rate=16000,
+            source_path=path,
+            segment_start=0.25,
+            segment_end=0.75,
+        )
+    )
+
+    assert loaded.waveform is not None
+    assert loaded.waveform.size == 8000
+
+
+def test_load_audio_keeps_pretrimmed_absolute_meld_segment(tmp_path: Path) -> None:
+    pytest.importorskip("av")
+    path = tmp_path / "clip.mp4"
+    _write_mp4_with_audio(path, seconds=0.5)
+
+    loaded = MediaLoader(audio_sample_rate=16000).load_audio(
+        AudioInput(
+            sample_rate=16000,
+            source_path=path,
+            segment_start=811.060,
+            segment_end=811.560,
+        )
+    )
+
+    assert loaded.waveform is not None
+    assert 0.45 <= loaded.waveform.size / 16000 <= 0.65
+
+
+def test_load_audio_rejects_overlong_source_media(tmp_path: Path) -> None:
+    pytest.importorskip("av")
+    path = tmp_path / "long.mp4"
+    _write_mp4_with_audio(path, seconds=0.5)
+
+    with pytest.raises(ValueError, match="허용 한도"):
+        MediaLoader(audio_sample_rate=16000, max_audio_seconds=0.1).load_audio(
+            AudioInput(sample_rate=16000, source_path=path)
+        )
 
 
 def test_load_video_defaults_to_64_square_frames(tmp_path: Path) -> None:
@@ -240,3 +288,76 @@ def test_feature_pipeline_loads_audio_and_video_when_both_extractors_need_them(
     assert loader.video_calls == 1
     assert bundle.matrices[0].values.shape == (1, 6)
     assert bundle.matrices[1].values.shape == (1, 5)
+
+
+class _FailingAudioLoader(_FakeMediaLoader):
+    def load_audio(self, audio: AudioInput) -> AudioInput:
+        self.audio_calls += 1
+        raise ValueError("broken audio")
+
+
+def test_feature_pipeline_can_drop_failed_audio_modality(tmp_path: Path) -> None:
+    loader = _FailingAudioLoader()
+    pipeline = FeaturePipeline(
+        [AudioConceptExtractor()],
+        media_loader=loader,
+        media_error_policy="drop_modality",
+    )
+
+    with pytest.warns(RuntimeWarning, match="누락 처리"):
+        bundle = pipeline.fit_transform([_media_sample(tmp_path / "clip.mp4")], Split.TRAIN)
+
+    assert loader.audio_calls == 1
+    assert bundle.availability[Modality.AUDIO].tolist() == [False]
+    assert bundle.matrices[0].values.shape == (1, 6)
+    assert np.allclose(bundle.matrices[0].values, 0.0)
+
+
+def test_feature_pipeline_can_drop_failed_media_sample(tmp_path: Path) -> None:
+    loader = _FailingAudioLoader()
+    pipeline = FeaturePipeline(
+        [AudioConceptExtractor()],
+        media_loader=loader,
+        media_error_policy="drop_sample",
+    )
+    broken = _media_sample(tmp_path / "broken.mp4")
+    good = _media_sample(tmp_path / "good.mp4", waveform=np.ones(8, dtype=np.float64))
+
+    with pytest.warns(RuntimeWarning, match="샘플 전체를 제외"):
+        bundle = pipeline.fit_transform([broken, good], Split.TRAIN)
+
+    assert loader.audio_calls == 1
+    assert bundle.uids == ("v",)
+    assert bundle.n_samples == 1
+    assert bundle.availability[Modality.AUDIO].tolist() == [True]
+
+
+def test_feature_pipeline_drops_overlong_audio_sample_and_text_features(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("av")
+    long_path = tmp_path / "long.mp4"
+    good_path = tmp_path / "good.mp4"
+    _write_mp4_with_audio(long_path, seconds=0.5)
+    _write_mp4_with_audio(good_path, seconds=0.05)
+    pipeline = FeaturePipeline(
+        [TextConceptExtractor(), AudioConceptExtractor()],
+        media_loader=MediaLoader(audio_sample_rate=16000, max_audio_seconds=0.1),
+        media_error_policy="drop_sample",
+    )
+
+    with pytest.warns(RuntimeWarning, match="샘플 전체를 제외"):
+        bundle = pipeline.fit_transform(
+            [
+                _media_sample(long_path, uid="long"),
+                _media_sample(good_path, uid="good"),
+            ],
+            Split.TRAIN,
+        )
+
+    assert bundle.uids == ("good",)
+    assert bundle.n_samples == 1
+    assert bundle.matrices[0].modality == Modality.TEXT
+    assert bundle.matrices[0].values.shape[0] == 1
+    assert bundle.matrices[1].modality == Modality.AUDIO
+    assert bundle.matrices[1].values.shape[0] == 1

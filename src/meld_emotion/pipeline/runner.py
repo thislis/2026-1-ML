@@ -73,11 +73,11 @@ class ExperimentRunner:
         train_bundle = self._features.fit_transform(train, self._train_split)
         if self._dropout is not None:
             train_bundle = self._dropout.apply(train_bundle)
-        y_train = self._labels(train)
+        y_train = self._labels_for_bundle(train, train_bundle)
         self._classifier.fit(train_bundle, y_train)
 
         test_bundle = self._features.transform(test, self._eval_split)
-        y_test = self._labels(test)
+        y_test = self._labels_for_bundle(test, test_bundle)
 
         evaluation = self._evaluator.evaluate(self._classifier, test_bundle, y_test, "full")
         robustness = self._run_robustness(test_bundle, y_test)
@@ -90,8 +90,10 @@ class ExperimentRunner:
             explanation=explanation,
             metadata={
                 "classifier": type(self._classifier).__name__,
-                "n_train": str(len(train)),
-                "n_test": str(len(test)),
+                "n_train": str(train_bundle.n_samples),
+                "n_test": str(test_bundle.n_samples),
+                "n_train_raw": str(len(train)),
+                "n_test_raw": str(len(test)),
                 "train_split": self._train_split.value,
                 "eval_split": self._eval_split.value,
                 "dropout": (
@@ -123,6 +125,10 @@ class ExperimentRunner:
                 raise ValueError(f"샘플 {sample.uid} 에 감정 레이블이 없습니다")
             emotions.append(sample.emotion)
         return self._encoder.encode(emotions)
+
+    def _labels_for_bundle(self, samples: Sequence[RawSample], bundle: FeatureBundle) -> IntArray:
+        by_uid = {sample.uid: sample for sample in samples}
+        return self._labels([by_uid[uid] for uid in bundle.uids])
 
 
 def _merge_explanations(reports: Sequence[ExplanationReport]) -> ExplanationReport:

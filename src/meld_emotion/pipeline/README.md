@@ -85,9 +85,12 @@ experiments:                                 # base 위에 차이만
   media:
     audio_sample_rate: 16000
     video_max_frames: 32
-  video_frame_size: [64, 64]   # [height, width]
+    video_frame_size: [64, 64]   # [height, width]
+    on_error: drop_sample        # raise | drop_modality | drop_sample
   ```
 - 특징 캐시 키는 `"{extractor.name}|{split}"` — 한 실험 내 분할별 재사용을 처리한다.
 - `dialogue_rnn` 모델은 `FeatureBundle.utterances` 를 기준으로 발화별 특징 행을 dialogue batch
   `[B,N,1,D]` 로 재구성한다. 기존 추출기는 발화별 single vector 를 내므로 sequence length 는
   1이며, padding 발화는 loss/evaluation 에서 제외된다.
+- `ExperimentRunner` metadata 는 raw 샘플 수(`n_train_raw`/`n_test_raw`)와 media error policy
+  적용 후 실제 feature bundle 샘플 수(`n_train`/`n_test`)를 함께 기록한다.

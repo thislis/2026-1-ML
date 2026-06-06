@@ -20,6 +20,9 @@
 `CounterfactualExplainer.explain_text_deletion` 은 토큰 삭제 후 특징 재추출 경로가 아직 없어
 명시적으로 `NotImplementedError` 를 던진다.
 
+`configs/meld_embeddinggemma_wav2vec2_suite.yaml` 은 `modality_ablation` 을 켜서 foundation
+embedding 기반 raw MELD suite 에서 weighted F1 기준 모달리티 기여도를 함께 저장한다.
+
 ## 새 설명기 추가하기
 
 1. `Explainer` Protocol 을 구현하고 `ExplanationReport` 의 적절한 필드를 채운다(필요하면 `Metric`

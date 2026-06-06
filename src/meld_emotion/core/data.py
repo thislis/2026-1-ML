@@ -29,11 +29,14 @@ class AudioInput:
     """오디오 모달리티 입력.
 
     ``waveform`` 이 ``None`` 이면 아직 적재되지 않은 상태이며 ``source_path`` 로 적재한다.
+    ``segment_start``/``segment_end`` 는 원본 media 안에서 사용할 초 단위 구간이다.
     """
 
     sample_rate: int
     waveform: FloatArray | None = None
     source_path: Path | None = None
+    segment_start: float | None = None
+    segment_end: float | None = None
 
     @property
     def is_loaded(self) -> bool:

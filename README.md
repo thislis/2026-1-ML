@@ -30,15 +30,81 @@ uv sync --extra deep                                   # PyTorch dialogue RNN �
 uv run meld-emotion run --config configs/example_meld_dialogue_rnn.yaml
 uv run meld-emotion compare --config configs/example_suite.yaml   # 여러 실험 비교표(Early/Late 등)
 uv run meld-emotion status                             # 구현 상태(완료/임시/미구현) 표
-uv run python -m pytest -q                                       # 단위 + end-to-end 테스트
+uv run python -m pytest -q                                       # 단위 + end-to-end 테스트(xgboost native 제외)
+uv sync --extra xgboost                                        # XGBoost native 테스트 의존성
+uv run python -m pytest -q -m xgboost_native                     # xgboost native 테스트(별도 프로세스)
 uv run mypy src                                        # 정적 타입 검사 (strict)
 uv run ruff check .                                    # 린트
 ```
 
+macOS arm64 환경에서는 PyTorch 와 XGBoost 가 서로 다른 OpenMP(`libomp`) 런타임을 같은 Python
+프로세스에 올릴 때 native segfault 가 날 수 있다. 그래서 기본 pytest 는 `xgboost_native`
+마커 테스트를 제외하고, XGBoost 테스트는 위처럼 별도 pytest 프로세스에서 실행한다.
+
+텍스트 임베딩은 경량 해싱 BoW(`type: text_bow`) 외에
+`google/embeddinggemma-300m` 기반 `type: text_embeddinggemma` 도 선택할 수 있다. 이 경로는
+`uv sync --extra text` 가 필요하며, Hugging Face 에서 Google Gemma 사용 조건에 동의한 계정으로
+모델 접근 권한을 열어 두어야 한다.
+
+EmbeddingGemma 는 Hugging Face gated model 이므로 최초 실행 전 인증이 필요하다.
+
+```bash
+# 1) https://huggingface.co/google/embeddinggemma-300m 에서 로그인 후 Google 라이선스 동의
+# 2) https://huggingface.co/settings/tokens 에서 Read token 생성
+uv run huggingface-cli login
+uv run huggingface-cli whoami
+```
+
+비대화형 환경에서는 `HF_TOKEN` 환경변수로 같은 인증을 제공할 수 있다.
+
+```bash
+export HF_TOKEN=hf_your_read_token_here
+```
+
+```yaml
+extractors:
+  - type: text_embeddinggemma
+    output_dim: 768
+    prompt_name: Classification
+```
+
+오디오 임베딩은 MFCC placeholder(`type: audio_mfcc`) 외에
+`facebook/wav2vec2-xls-r-300m` 기반 `type: audio_wav2vec2_xlsr` 도 선택할 수 있다. 이 경로는
+`uv sync --extra audio` 가 필요하며, base XLS-R checkpoint 는 ASR tokenizer 가 없어서
+`AutoFeatureExtractor` + `Wav2Vec2Model` 로 로드한다. 입력 waveform 은 16kHz mono 로 맞춰야 한다
+(기본 `MediaLoader` 설정은 16kHz).
+
+```yaml
+extractors:
+  - type: audio_wav2vec2_xlsr
+    output_dim: 1024
+    sampling_rate: 16000
+    chunk_seconds: 30.0
+```
+
+MELD.Raw 의 train/test 를 EmbeddingGemma 텍스트 임베딩 + Wav2Vec2 XLS-R 오디오 임베딩으로
+처리해 여러 모델을 비교하려면 다음 suite 를 쓴다.
+
+```bash
+uv sync --extra text --extra audio
+uv run meld-emotion compare --config configs/meld_embeddinggemma_wav2vec2_suite.yaml
+```
+
+이 suite 는 MELD.Raw train split 의 손상된 MP4 1개를 `media.on_error: drop_sample` 로 처리한다.
+해당 발화는 텍스트/오디오 특징 모두 학습/평가에서 제외된다.
+오디오는 CSV 의 `StartTime`/`EndTime` 구간을 사용한다. 실제 MP4 파일 길이가 60초를 넘으면
+Wav2Vec2 self-attention buffer 용량 부족을 피하기 위해 샘플 전체를 제외하므로, 해당 text 도
+학습·평가에 쓰이지 않는다.
+비교 대상은 `early_centroid`, `early_linear_regression`, `early_logreg`, `late_centroid` 이며,
+평가 시나리오는 `full`, `no_text`, `no_audio` 다. `modality_ablation` 설명기도 켜져 있어
+weighted F1 기준 모달리티별 기여도를 함께 남긴다. 출력 파일은
+`outputs/meld_embeddinggemma_wav2vec2_models.json` 이다.
+
 실제 MELD 실험 템플릿은 [configs/example_meld_early_svm.yaml](configs/example_meld_early_svm.yaml)
 및 dialogue-level PyTorch 모델용
 [configs/example_meld_dialogue_rnn.yaml](configs/example_meld_dialogue_rnn.yaml) 이다.
-MELD CSV/metadata 로딩과 SVM 계열 베이스라인은 구현되어 있고, raw MP4 는 필요한
+MELD CSV/metadata 로딩, SVM 계열 베이스라인, EmbeddingGemma 텍스트 임베딩,
+Wav2Vec2 XLS-R 오디오 임베딩은 구현되어 있고, raw MP4 는 필요한
 스트림만 lazy-load 한다(오디오 extractor 는 waveform 만, 비디오 extractor 는 프레임만 적재).
 아직 남은 임시 경계(TF-IDF, MFCC, 얼굴 랜드마크 등)에 도달하면 placeholder 경고로 알려준다.
 `dialogue_rnn` 모델은 발화별 특징을 dialogue batch 로 재구성해 GRU/LSTM modality encoder,
@@ -90,6 +156,7 @@ DatasetSource → FeaturePipeline(추출기들) → FeatureBundle
 - **무엇이 되어 있나**: `uv run meld-emotion status` 가 [core/status.py](src/meld_emotion/core/status.py)
   레지스트리에서 직접 읽어 REAL / PLACEHOLDER / UNIMPLEMENTED 를 출력한다. 손으로 관리하는
   목록이 아니므로 코드와 어긋나지 않는다.
+  현재 상태 기준 전체 49개 컴포넌트 중 REAL 42개, PLACEHOLDER 7개, UNIMPLEMENTED 0개다.
   `MediaLoader` 는 MP4 오디오 waveform 과 비디오 프레임을 분리해서 lazy-load 한다.
 - **무언가를 추가/교체하려면**: 해당 축의 패키지 README 의 "새 … 추가하기" 절을 따른다.
   공통 절차는 (1) Protocol 을 만족하는 클래스 작성 → (2) [config/schema.py](src/meld_emotion/config/schema.py)

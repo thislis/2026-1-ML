@@ -7,10 +7,15 @@
 
 from __future__ import annotations
 
-from meld_emotion.features.audio import AudioConceptExtractor, MfccAcousticExtractor
+from meld_emotion.features.audio import (
+    AudioConceptExtractor,
+    MfccAcousticExtractor,
+    Wav2Vec2XlsrAudioExtractor,
+)
 from meld_emotion.features.base import BaseFeatureExtractor
 from meld_emotion.features.text import (
     BowTextExtractor,
+    EmbeddingGemmaTextExtractor,
     SentenceEmbeddingExtractor,
     TextConceptExtractor,
     TfidfTextExtractor,
@@ -24,9 +29,11 @@ __all__ = [
     "BowTextExtractor",
     "TfidfTextExtractor",
     "SentenceEmbeddingExtractor",
+    "EmbeddingGemmaTextExtractor",
     # audio
     "AudioConceptExtractor",
     "MfccAcousticExtractor",
+    "Wav2Vec2XlsrAudioExtractor",
     # video
     "VideoConceptExtractor",
     "VisualCueExtractor",

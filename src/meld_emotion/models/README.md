@@ -68,3 +68,17 @@
 - `SVC` 는 `predict_proba` 를 위해 `probability=True` 필요.
 - 테스트는 sklearn 미설치 시 `pytest.importorskip` 으로 skip 된다(`tests/test_sklearn_estimators.py`).
   실제 검증은 `uv sync --extra text` 후 수행.
+
+## XGBoost 테스트 메모
+
+- `tests/test_xgboost_estimator.py` 는 `xgboost_native` 마커가 붙어 기본 pytest 실행에서 제외된다.
+- 실행 전 `uv sync --extra xgboost` 또는 `uv sync --extra all` 로 native 의존성을 설치한다.
+- macOS arm64 에서 PyTorch 가 먼저 import 된 뒤 XGBoost native library 가 학습을 시작하면 서로
+  다른 OpenMP(`libomp`) 런타임 충돌로 segfault 가 날 수 있다. 기본 회귀 테스트와 같은
+  프로세스에서 섞지 않고 별도 pytest 프로세스로 실행한다.
+- 검증 명령:
+
+  ```bash
+  uv run python -m pytest -q
+  uv run python -m pytest -q -m xgboost_native
+  ```

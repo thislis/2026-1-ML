@@ -20,7 +20,7 @@
 | `extractors` | 특징 추출기 목록(모달리티 × 임베딩/개념) | `(text_concepts,)` |
 | `model` | 분류기(`early`/`late`, `dialogue_rnn`) | `early` |
 | `dropout` | 학습 시 modality dropout(`None` = 미적용) | `None` |
-| `media` | raw MP4 lazy-load(`audio_sample_rate`, `video_max_frames`, `video_frame_size`) | 16kHz, 32프레임, 64×64 |
+| `media` | raw MP4 lazy-load(`audio_sample_rate`, `video_max_frames`, `video_frame_size`, `on_error`) | 16kHz, 32프레임, 64×64, `raise` |
 | `evaluation` | 지표·혼동행렬·강건성 시나리오 | 기본 4지표, `full` |
 | `explainers` | 설명기 목록(permutation/ablation/counterfactual) | `()` |
 | `cache` | 특징 캐시(`memory`/`null`/`disk`) | `memory` |
@@ -63,6 +63,18 @@ model:
     modality_dropout: 0.2
 ```
 
+## 현재 등록된 주요 타입
+
+- 데이터셋: `synthetic`, `meld`
+- 특징: `text_concepts`, `text_bow`, `text_tfidf`, `text_embeddings`,
+  `text_embeddinggemma`, `audio_concepts`, `audio_mfcc`, `audio_wav2vec2_xlsr`,
+  `video_concepts`, `video_visual`, `meld_precomputed`
+- 모델: `early`, `late`, `dialogue_rnn`
+- 기초 학습기: `majority`, `random`, `centroid`, `linear_regression`, `svm`, `logreg`,
+  `random_forest`, `knn`, `xgboost`
+- 결합기/설명기/리포터: `mean`, `weighted`, `stacking`,
+  `permutation`, `modality_ablation`, `counterfactual`, `console`, `json`, `dashboard`
+
 ## 여러 실험을 기술하는 것: `SuiteConfig`
 
 `meld-emotion compare` 는 `SuiteConfig` 를 읽어 여러 `ExperimentConfig` 를 같은 실행 경로로
@@ -87,10 +99,84 @@ EXTRACTOR_CONFIGS.add(MyExtractorConfig.type, MyExtractorConfig)
 
 YAML 에서는 `{type: text_myfeat, dim: 64}` 로 사용한다.
 
+EmbeddingGemma 텍스트 임베딩은 다음처럼 선택한다. `output_dim` 은 128/256/512/768 중 하나이며,
+실행 환경에는 `uv sync --extra text` 와 Hugging Face 의 Google Gemma 라이선스 동의가 필요하다.
+모델은 gated repository 이므로 [모델 페이지](https://huggingface.co/google/embeddinggemma-300m)
+에서 라이선스에 동의한 뒤 Read token 으로 로그인해야 한다.
+
+```bash
+uv run huggingface-cli login
+uv run huggingface-cli whoami
+```
+
+비대화형 실행에서는 `HF_TOKEN=hf_...` 환경변수를 설정한다.
+
+```yaml
+extractors:
+  - type: text_embeddinggemma
+    model_name: google/embeddinggemma-300m
+    output_dim: 768
+    batch_size: 32
+    normalize: true
+    prompt_name: Classification
+    device: null
+```
+
+`prompt_name` 은 EmbeddingGemma 모델의 prompt dictionary key 와 대소문자까지 일치해야 한다.
+기본 분류 목적 key 는 `Classification` 이다.
+
+Wav2Vec2 XLS-R 오디오 임베딩은 다음처럼 선택한다. 실행 환경에는 `uv sync --extra audio` 가
+필요하고, 입력 waveform 은 16kHz mono 여야 한다. `facebook/wav2vec2-xls-r-300m` 은 ASR
+tokenizer 가 없는 base checkpoint 이므로 내부 로딩은 `AutoFeatureExtractor` + `Wav2Vec2Model`
+경로를 사용한다.
+
+```yaml
+extractors:
+  - type: audio_wav2vec2_xlsr
+    model_name: facebook/wav2vec2-xls-r-300m
+    output_dim: 1024
+    batch_size: 4
+    sampling_rate: 16000
+    chunk_seconds: 30.0
+    normalize: true
+    device: null
+```
+
+raw media 오류 처리는 `media.on_error` 로 조정한다. 기본값 `raise` 는 파일 누락/손상 시 실험을
+중단하고, `drop_modality` 는 해당 샘플의 해당 모달리티만 missing 으로 처리한다. `drop_sample`
+은 해당 발화 샘플 전체를 학습/평가에서 제외한다. 러너 metadata 에는 raw 로드 전 개수
+(`n_train_raw`/`n_test_raw`)와 실제 특징화 후 개수(`n_train`/`n_test`)가 함께 기록된다.
+`media.max_audio_seconds` 를 지정하면 실제 MP4/container 길이가 그 값을 초과하는 audio media 를
+로딩 실패로 처리한다. `drop_sample` 정책과 함께 쓰면 버퍼 용량 부족을 일으키는 긴 MP4와 그에
+대응되는 text 가 모두 학습·평가에서 제외된다.
+
+MELD.Raw 의 train/test MP4 폴더가 split 별로 다른 경우에는 `MeldConfig` 에 split별 media
+subdir 를 지정한다. EmbeddingGemma 텍스트 임베딩과 Wav2Vec2 XLS-R 오디오 임베딩을 함께 쓰는
+모델 비교 suite 는 [configs/meld_embeddinggemma_wav2vec2_suite.yaml](../../../configs/meld_embeddinggemma_wav2vec2_suite.yaml)
+에 있다.
+
+```yaml
+dataset:
+  type: meld
+  root: MELD.Raw
+  csv_train: train/train_sent_emo.csv
+  csv_dev: dev_sent_emo.csv
+  csv_test: test_sent_emo.csv
+  audio_subdir_train: train/train_splits
+  audio_subdir_dev: dev_splits_complete
+  audio_subdir_test: output_repeated_splits_test
+  video_subdir_train: train/train_splits
+  video_subdir_dev: dev_splits_complete
+  video_subdir_test: output_repeated_splits_test
+media:
+  on_error: drop_sample
+  max_audio_seconds: 60.0
+```
+
 ## 주의
 
 - `ClassVar` 식별자는 필드 순서/기본값 문제를 피하려는 의도다(중첩 기본값은 `default_factory`).
 - 새 스칼라 필드는 **기본값**을 주어야 기존 YAML 과 호환된다.
 - 새 중첩 설정을 YAML 에서 복원해야 한다면 `loader.py` 에 재귀 복원 함수를 추가해야 한다
   (`model.base`, `late.combiner`, `stacking.meta`, `dialogue_rnn.training`,
-  `media.video_frame_size` 가 현재 예시다).
+  `media.video_frame_size`/`media.on_error` 가 현재 예시다).

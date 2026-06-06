@@ -13,6 +13,8 @@
     시각화 렌더링은 미구현).
   - `ComparisonReporter` (완전 구현): `meld-emotion compare` 의 suite 결과를 콘솔 표와 JSON 으로
     저장. `Reporter` Protocol 에 주입되는 리포터는 아니며 `ComparisonReport` 를 직접 받는다.
+    실패한 변형은 `[Failed]` 표와 JSON 의 `error` 필드에 남기고, 성공한 변형의 metric/robustness
+    표는 계속 출력한다.
 
 ## 새 출력 형식 추가하기
 
