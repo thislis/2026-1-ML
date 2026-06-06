@@ -21,6 +21,7 @@ from meld_emotion.config.schema import (
     DialogueRnnConfig,
     DiskCacheConfig,
     EarlyFusionConfig,
+    EmbeddingGemmaTextConfig,
     EstimatorConfig,
     ExperimentConfig,
     ExplainerConfig,
@@ -52,6 +53,7 @@ from meld_emotion.config.schema import (
     TfidfConfig,
     VideoConceptConfig,
     VisualCueConfig,
+    Wav2Vec2XlsrAudioConfig,
     WeightedCombinerConfig,
     XGBoostConfig,
 )
@@ -76,10 +78,15 @@ from meld_emotion.evaluation.robustness import RobustnessEvaluator
 from meld_emotion.explain.counterfactual import CounterfactualExplainer
 from meld_emotion.explain.modality_contribution import ModalityAblationExplainer
 from meld_emotion.explain.permutation import PermutationImportanceExplainer
-from meld_emotion.features.audio import AudioConceptExtractor, MfccAcousticExtractor
+from meld_emotion.features.audio import (
+    AudioConceptExtractor,
+    MfccAcousticExtractor,
+    Wav2Vec2XlsrAudioExtractor,
+)
 from meld_emotion.features.precomputed import MeldPrecomputedFeatureExtractor
 from meld_emotion.features.text import (
     BowTextExtractor,
+    EmbeddingGemmaTextExtractor,
     SentenceEmbeddingExtractor,
     TextConceptExtractor,
     TfidfTextExtractor,
@@ -154,10 +161,28 @@ def build_extractor(config: ExtractorConfig) -> FeatureExtractor:
         return TfidfTextExtractor(max_features=config.max_features, ngram_max=config.ngram_max)
     if isinstance(config, SentenceEmbeddingConfig):
         return SentenceEmbeddingExtractor(model_name=config.model_name, dim=config.dim)
+    if isinstance(config, EmbeddingGemmaTextConfig):
+        return EmbeddingGemmaTextExtractor(
+            model_name=config.model_name,
+            output_dim=config.output_dim,
+            batch_size=config.batch_size,
+            normalize=config.normalize,
+            prompt_name=config.prompt_name,
+            device=config.device,
+        )
     if isinstance(config, AudioConceptConfig):
         return AudioConceptExtractor()
     if isinstance(config, MfccConfig):
         return MfccAcousticExtractor(n_mfcc=config.n_mfcc)
+    if isinstance(config, Wav2Vec2XlsrAudioConfig):
+        return Wav2Vec2XlsrAudioExtractor(
+            model_name=config.model_name,
+            output_dim=config.output_dim,
+            batch_size=config.batch_size,
+            sampling_rate=config.sampling_rate,
+            normalize=config.normalize,
+            device=config.device,
+        )
     if isinstance(config, VideoConceptConfig):
         return VideoConceptExtractor()
     if isinstance(config, VisualCueConfig):

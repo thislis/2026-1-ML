@@ -87,6 +87,34 @@ EXTRACTOR_CONFIGS.add(MyExtractorConfig.type, MyExtractorConfig)
 
 YAML 에서는 `{type: text_myfeat, dim: 64}` 로 사용한다.
 
+EmbeddingGemma 텍스트 임베딩은 다음처럼 선택한다. `output_dim` 은 128/256/512/768 중 하나이며,
+실행 환경에는 `uv sync --extra text` 와 Hugging Face 의 Google Gemma 라이선스 동의가 필요하다.
+
+```yaml
+extractors:
+  - type: text_embeddinggemma
+    model_name: google/embeddinggemma-300m
+    output_dim: 768
+    batch_size: 32
+    normalize: true
+    prompt_name: classification
+    device: null
+```
+
+Wav2Vec2 XLS-R 오디오 임베딩은 다음처럼 선택한다. 실행 환경에는 `uv sync --extra audio` 가
+필요하고, 입력 waveform 은 16kHz mono 여야 한다.
+
+```yaml
+extractors:
+  - type: audio_wav2vec2_xlsr
+    model_name: facebook/wav2vec2-xls-r-300m
+    output_dim: 1024
+    batch_size: 4
+    sampling_rate: 16000
+    normalize: true
+    device: null
+```
+
 ## 주의
 
 - `ClassVar` 식별자는 필드 순서/기본값 문제를 피하려는 의도다(중첩 기본값은 `default_factory`).

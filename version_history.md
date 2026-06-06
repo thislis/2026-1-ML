@@ -1,5 +1,23 @@
 # Version History
 
+## wav2vec2_xlsr_audio_extractor
+
+- `audio_wav2vec2_xlsr` extractor 를 추가해 MFCC placeholder 대신
+  `facebook/wav2vec2-xls-r-300m` 기반 Transformers 오디오 임베딩을 실험 설정에서 선택할 수
+  있게 했다.
+- 기본 출력은 마지막 hidden state 를 mean pooling 한 1024차원 발화 임베딩이며, 16kHz mono
+  waveform 입력을 요구한다.
+- 루트 README, features/config README 에 설치 조건(`uv sync --extra audio`)과 YAML 사용 예시를
+  반영했다.
+
+## embeddinggemma_text_extractor
+
+- `text_embeddinggemma` extractor 를 추가해 BoW 대신 `google/embeddinggemma-300m` 기반
+  Sentence Transformers 임베딩을 실험 설정에서 선택할 수 있게 했다.
+- 기본 출력은 768차원이며, 128/256/512/768 차원 Matryoshka truncation 을 지원한다.
+- 루트 README, features/config README 에 설치 조건(`uv sync --extra text`), Hugging Face
+  Google Gemma 라이선스 동의 필요성, YAML 사용 예시를 반영했다.
+
 ## ours_v1
 
 `ours_v1`은 MELD Raw의 CSV/MP4를 직접 전처리해서 특징을 뽑는 버전이 아니라, MELD metadata와 MELD 팀 제공 precomputed feature pickle을 이 프로젝트의 모듈형 파이프라인에 연결해 baseline 모델들과 dialogue-level PyTorch 모델을 비교한 버전이다.

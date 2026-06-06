@@ -35,10 +35,35 @@ uv run mypy src                                        # 정적 타입 검사 (s
 uv run ruff check .                                    # 린트
 ```
 
+텍스트 임베딩은 경량 해싱 BoW(`type: text_bow`) 외에
+`google/embeddinggemma-300m` 기반 `type: text_embeddinggemma` 도 선택할 수 있다. 이 경로는
+`uv sync --extra text` 가 필요하며, Hugging Face 에서 Google Gemma 사용 조건에 동의한 계정으로
+모델 접근 권한을 열어 두어야 한다.
+
+```yaml
+extractors:
+  - type: text_embeddinggemma
+    output_dim: 768
+    prompt_name: classification
+```
+
+오디오 임베딩은 MFCC placeholder(`type: audio_mfcc`) 외에
+`facebook/wav2vec2-xls-r-300m` 기반 `type: audio_wav2vec2_xlsr` 도 선택할 수 있다. 이 경로는
+`uv sync --extra audio` 가 필요하며, 입력 waveform 은 16kHz mono 로 맞춰야 한다
+(기본 `MediaLoader` 설정은 16kHz).
+
+```yaml
+extractors:
+  - type: audio_wav2vec2_xlsr
+    output_dim: 1024
+    sampling_rate: 16000
+```
+
 실제 MELD 실험 템플릿은 [configs/example_meld_early_svm.yaml](configs/example_meld_early_svm.yaml)
 및 dialogue-level PyTorch 모델용
 [configs/example_meld_dialogue_rnn.yaml](configs/example_meld_dialogue_rnn.yaml) 이다.
-MELD CSV/metadata 로딩과 SVM 계열 베이스라인은 구현되어 있고, raw MP4 는 필요한
+MELD CSV/metadata 로딩, SVM 계열 베이스라인, EmbeddingGemma 텍스트 임베딩,
+Wav2Vec2 XLS-R 오디오 임베딩은 구현되어 있고, raw MP4 는 필요한
 스트림만 lazy-load 한다(오디오 extractor 는 waveform 만, 비디오 extractor 는 프레임만 적재).
 아직 남은 임시 경계(TF-IDF, MFCC, 얼굴 랜드마크 등)에 도달하면 placeholder 경고로 알려준다.
 `dialogue_rnn` 모델은 발화별 특징을 dialogue batch 로 재구성해 GRU/LSTM modality encoder,

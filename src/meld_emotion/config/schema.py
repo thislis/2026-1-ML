@@ -93,6 +93,17 @@ class SentenceEmbeddingConfig(ExtractorConfig):
 
 
 @dataclass(frozen=True)
+class EmbeddingGemmaTextConfig(ExtractorConfig):
+    type: ClassVar[str] = "text_embeddinggemma"
+    model_name: str = "google/embeddinggemma-300m"
+    output_dim: int = 768
+    batch_size: int = 32
+    normalize: bool = True
+    prompt_name: str | None = "classification"
+    device: str | None = None
+
+
+@dataclass(frozen=True)
 class AudioConceptConfig(ExtractorConfig):
     type: ClassVar[str] = "audio_concepts"
 
@@ -101,6 +112,17 @@ class AudioConceptConfig(ExtractorConfig):
 class MfccConfig(ExtractorConfig):
     type: ClassVar[str] = "audio_mfcc"
     n_mfcc: int = 13
+
+
+@dataclass(frozen=True)
+class Wav2Vec2XlsrAudioConfig(ExtractorConfig):
+    type: ClassVar[str] = "audio_wav2vec2_xlsr"
+    model_name: str = "facebook/wav2vec2-xls-r-300m"
+    output_dim: int = 1024
+    batch_size: int = 4
+    sampling_rate: int = 16000
+    normalize: bool = True
+    device: str | None = None
 
 
 @dataclass(frozen=True)
@@ -128,8 +150,10 @@ for _ec in (
     BowTextConfig,
     TfidfConfig,
     SentenceEmbeddingConfig,
+    EmbeddingGemmaTextConfig,
     AudioConceptConfig,
     MfccConfig,
+    Wav2Vec2XlsrAudioConfig,
     VideoConceptConfig,
     VisualCueConfig,
     PrecomputedMeldFeatureConfig,
