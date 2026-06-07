@@ -15,6 +15,8 @@
     저장. `Reporter` Protocol 에 주입되는 리포터는 아니며 `ComparisonReport` 를 직접 받는다.
     실패한 변형은 `[Failed]` 표와 JSON 의 `error` 필드에 남기고, 성공한 변형의 metric/robustness
     표는 계속 출력한다.
+    모델 다운로드/인증/native library 오류처럼 특정 변형에서만 발생한 예외도 비교 전체를
+    중단하지 않고 outcome 단위 실패로 기록한다.
 
 ## 새 출력 형식 추가하기
 
@@ -29,3 +31,5 @@
 - 출력 경로는 각 리포터 설정의 `path` 가 결정한다. `ExperimentConfig.output_dir` 은 현재
   리포터 경로에 자동 반영되지 않으므로, 저장 위치는 리포터의 `path` 에 직접 적는다.
 - suite 비교 출력 경로는 `SuiteConfig.output_path` 가 결정한다.
+- `DashboardExporter` 는 현재 실제 UI 렌더링이 아니라 case-study 대시보드용 JSON 구조를
+  저장하는 placeholder 이다.

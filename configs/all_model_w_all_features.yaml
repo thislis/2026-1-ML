@@ -1,23 +1,22 @@
-# MELD.Raw train/test 를 실제 foundation embedding extractor 로 처리해 여러 모델을 비교한다.
+# MELD.Raw train/test 를 세 foundation embedding extractor 로 처리해 주요 모델을 비교한다.
 #
 # Text:  google/embeddinggemma-300m      (type: text_embeddinggemma)
 # Audio: facebook/wav2vec2-xls-r-300m   (type: audio_wav2vec2_xlsr)
+# Video: facebook/timesformer-base-finetuned-k400 (type: video_timesformer)
 #
 # 실행 전 모델 다운로드/추론 의존성이 필요하다.
-#   uv sync --extra text --extra audio
-#   uv run meld-emotion compare --config configs/meld_embeddinggemma_wav2vec2_suite.yaml
+#   uv sync --extra text --extra audio --extra video --extra deep
+#   uv run meld-emotion compare --config configs/all_model_w_all_features.yaml
 #
-# 최초 실행은 train/test 전체 발화에 대해 두 foundation model embedding 을 계산하므로 오래 걸린다.
-# 현재 장비에서는 MPS 가 사용 가능하지 않아 device 는 cpu 로 둔다.
-# test split 의 일부 MP4 는 실제 파일 길이가 1분을 넘어 Wav2Vec2 self-attention buffer 가
-# 커지므로 60초 초과 media sample 은 text/audio 모두 학습·평가에서 제외한다.
+# 최초 실행은 train/test 전체 발화에 대해 세 foundation model embedding 을 계산하므로 오래 걸린다.
 
-name: meld_embeddinggemma_wav2vec2_models
+name: all_model_w_all_features
 metrics: [accuracy, macro_f1, weighted_f1]
 robustness_metric: weighted_f1
-output_path: outputs/meld_embeddinggemma_wav2vec2_models.json
+output_path: outputs/all_model_w_all_features.json
 
 base:
+  seed: 0
   train_split: train
   eval_split: test
 
@@ -36,8 +35,8 @@ base:
 
   media:
     audio_sample_rate: 16000
-    video_max_frames: 32
-    video_frame_size: [64, 64]
+    video_max_frames: 8
+    video_frame_size: [224, 224]
     # MELD.Raw train 에 PyAV 가 열 수 없는 깨진 MP4 1개가 있어, media 로딩 실패 샘플은
     # 학습/평가에서 제외한다.
     on_error: drop_sample
@@ -62,11 +61,20 @@ base:
       chunk_seconds: 30.0
       normalize: true
       device: mps
+    - type: video_timesformer
+      model_name: facebook/timesformer-base-finetuned-k400
+      output_dim: 768
+      batch_size: 2
+      num_frames: 8
+      frame_size: 224
+      normalize: true
+      pooling: cls
+      device: mps
 
   evaluation:
     metrics: [accuracy, macro_f1, weighted_f1, per_class_recall]
     confusion: true
-    scenarios: [full, no_text, no_audio]
+    scenarios: [full, no_text, no_audio, no_video, text_only, audio_only, video_only]
 
   explainers:
     - type: modality_ablation
@@ -75,9 +83,25 @@ base:
   cache:
     type: memory
 
+  # compare runner 가 집계표와 JSON 을 내므로 변형별 console/json reporter 는 끈다.
   reporters: []
 
 experiments:
+  - name: majority
+    model:
+      type: early
+      base:
+        type: majority
+      use_concepts: false
+
+  - name: random
+    model:
+      type: early
+      base:
+        type: random
+        seed: 0
+      use_concepts: false
+
   - name: early_centroid
     model:
       type: early
@@ -104,14 +128,14 @@ experiments:
         max_iter: 1000
       use_concepts: false
 
-  - name: late_centroid
+  - name: early_svm
     model:
-      type: late
+      type: early
       base:
-        type: centroid
-        temperature: 1.0
-      combiner:
-        type: mean
+        type: svm
+        C: 1.0
+        kernel: rbf
+      use_concepts: false
 
   - name: dialogue_rnn
     model:

@@ -6,7 +6,8 @@
 ## 구성
 
 - `cache.py` — `InMemoryFeatureCache`·`NullFeatureCache` (완전 구현), `DiskFeatureCache` (임시,
-  인메모리로 위임). 추출-1회·재사용-N회.
+  인메모리로 위임). 추출-1회·재사용-N회. `InMemoryFeatureCache` 는 개별 `FeatureMatrix` 와
+  media chunk 경로의 `FeatureBundle` 캐시를 모두 지원한다.
 - `feature_pipeline.py` — `FeaturePipeline`: 추출기들을 학습 분할로 `fit` 후 임의 분할을
   `FeatureBundle` 로 변환하고 모달리티 가용성 마스크를 구성한다. 오디오/비디오 추출기가 있고
   source path 만 있는 샘플은 특징 추출 전 `MediaLoader` 로 필요한 배열을 lazy-load 한다.
@@ -15,7 +16,9 @@
 - `builder.py` — **구성 루트**. `build_experiment(config) -> ExperimentRunner`. 유일하게 모든
   구체 구현을 import 하여 설정→객체로 연결한다.
 - `suite.py` — `SuiteRunner`: 여러 `ExperimentConfig` 를 각각 `build_experiment().run()` 으로
-  실행해 `ComparisonReport` 로 모은다(기존 단일 실행 경로를 재사용하는 얇은 층).
+  실행해 `ComparisonReport` 로 모은다(기존 단일 실행 경로를 재사용하는 얇은 층). dataset,
+  extractors, media, train/eval split 이 같은 실험끼리는 suite 내부 in-memory feature cache 를
+  공유한다.
 
 ## 흐름
 
@@ -30,6 +33,10 @@ source.load → feature_pipeline.fit_transform(train) → classifier.fit
 오디오를 추출하지 않고 프레임만 받는다. 기본은 16kHz 오디오, 32프레임 균등 샘플링 + 64×64
 resize 이며 `ExperimentConfig.media` 또는 YAML 의 `media.audio_sample_rate`,
 `media.video_max_frames`, `media.video_frame_size` 로 바꾼다.
+`video_timesformer` 는 이 프레임을 8프레임, 224×224 ImageNet 정규화 입력으로 맞춰
+`facebook/timesformer-base-finetuned-k400` CLS token 또는 token 평균 embedding 을 만든다.
+`video_videoprism` 은 이 프레임을 16프레임, 288×288 입력으로 재샘플/resize 한 뒤
+`google/videoprism-base-f16r288` patch token 을 평균 풀링해 발화 단위 embedding 을 만든다.
 
 ## 여러 실험 비교 (suite)
 
@@ -58,9 +65,9 @@ experiments:                                 # base 위에 차이만
   - { name: late_centroid,  model: { type: late,  base: { type: centroid }, combiner: { type: mean } } }
 ```
 
-**경계 내성**: 어떤 변형이 미구현 경계(`@unimplemented`)에 닿아 예외를
-던져도 비교 전체는 멈추지 않는다. 그 변형은 `[Failed]` 에 사유와 함께 기록되고 나머지는 정상
-비교된다 — 구현된 부분부터 점진적으로 비교할 수 있다. 예제: `configs/example_suite.yaml`.
+**경계 내성**: 어떤 변형이 미구현 경계, 모델 다운로드, gated model 인증, native library 같은
+외부 경계에서 예외를 던져도 비교 전체는 멈추지 않는다. 그 변형은 `[Failed]` 에 사유와 함께
+기록되고 나머지는 정상 비교된다. 예제: `configs/example_suite.yaml`.
 
 ## 새 컴포넌트를 파이프라인에 연결하기
 
@@ -87,10 +94,15 @@ experiments:                                 # base 위에 차이만
     video_max_frames: 32
     video_frame_size: [64, 64]   # [height, width]
     on_error: drop_sample        # raise | drop_modality | drop_sample
+    max_audio_seconds: 60.0      # 초과 audio media 는 로딩 실패로 처리
+    min_audio_seconds: 0.025     # 너무 짧은 Wav2Vec2 입력도 제외 가능
   ```
-- 특징 캐시 키는 `"{extractor.name}|{split}"` — 한 실험 내 분할별 재사용을 처리한다.
+- 특징 캐시 키는 `"{extractor.name}|{split}"` 이며, media chunk 경로에서는 split/uid fingerprint
+  기반 bundle cache 도 함께 사용한다.
 - `dialogue_rnn` 모델은 `FeatureBundle.utterances` 를 기준으로 발화별 특징 행을 dialogue batch
   `[B,N,1,D]` 로 재구성한다. 기존 추출기는 발화별 single vector 를 내므로 sequence length 는
   1이며, padding 발화는 loss/evaluation 에서 제외된다.
 - `ExperimentRunner` metadata 는 raw 샘플 수(`n_train_raw`/`n_test_raw`)와 media error policy
   적용 후 실제 feature bundle 샘플 수(`n_train`/`n_test`)를 함께 기록한다.
+- `meld-emotion run` 과 `meld-emotion compare` 는 기본 `INFO` 로그를 stderr 로 출력하며,
+  `--log-level DEBUG` 와 `--log-file <path>` 로 상세 로그와 파일 로그를 켤 수 있다.

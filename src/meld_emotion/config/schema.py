@@ -145,6 +145,30 @@ class VisualCueConfig(ExtractorConfig):
 
 
 @dataclass(frozen=True)
+class TimeSformerVideoConfig(ExtractorConfig):
+    type: ClassVar[str] = "video_timesformer"
+    model_name: str = "facebook/timesformer-base-finetuned-k400"
+    output_dim: int = 768
+    batch_size: int = 2
+    num_frames: int = 8
+    frame_size: int = 224
+    normalize: bool = True
+    pooling: str = "cls"
+    device: str | None = None
+
+
+@dataclass(frozen=True)
+class VideoPrismConfig(ExtractorConfig):
+    type: ClassVar[str] = "video_videoprism"
+    model_name: str = "google/videoprism-base-f16r288"
+    output_dim: int = 768
+    num_frames: int | None = 16
+    frame_size: int = 288
+    normalize: bool = True
+    prefer_batched_input: bool = True
+
+
+@dataclass(frozen=True)
 class PrecomputedMeldFeatureConfig(ExtractorConfig):
     type: ClassVar[str] = "meld_precomputed"
     path: str = ""
@@ -164,6 +188,8 @@ for _ec in (
     Wav2Vec2XlsrAudioConfig,
     VideoConceptConfig,
     VisualCueConfig,
+    TimeSformerVideoConfig,
+    VideoPrismConfig,
     PrecomputedMeldFeatureConfig,
 ):
     EXTRACTOR_CONFIGS.add(_ec.type, _ec)
@@ -403,6 +429,7 @@ class MediaConfig:
     video_frame_size: tuple[int, int] = (64, 64)  # (height, width)
     on_error: str = "raise"  # raise | drop_modality | drop_sample
     max_audio_seconds: float | None = None  # 초과 시 샘플 전체 제외
+    min_audio_seconds: float | None = None  # 미만 시 샘플 전체 제외
 
 
 # --- 설명(Explainer) -----------------------------------------------------------

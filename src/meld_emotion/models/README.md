@@ -6,6 +6,8 @@
 
 `dialogue_rnn` 은 예외적으로 Estimator 가 아니라 `Classifier` 구현이다. 기존 발화별
 `FeatureBundle` 을 dialogue batch 로 재구성한 뒤 PyTorch 모델을 직접 학습한다.
+모든 `Classifier` 구현은 `EmotionLabelEncoder.classes` 의 7개 감정 순서를 기준으로 확률 폭을
+고정한다.
 
 ## 구성
 
@@ -32,6 +34,9 @@
     bias, same-speaker bias, optional RoPE(q/k only, 기본 off).
   - `multimodal_emotion_model.py` — 위 부품을 묶어 `logits`, modality gate, 각 attention 을 반환.
   - `dialogue_rnn.py` — `Classifier` adapter. `model: {type: dialogue_rnn}` 으로 선택한다.
+
+현재 `configs/all_model_w_all_features.yaml` 은 text/audio/video foundation embedding 위에서
+`majority`, `random`, early-fusion baseline, `dialogue_rnn` 을 한 suite 로 비교하는 예시다.
 
 ## 클래스 수(K)는 데이터가 아니라 레이블 공간에서
 
@@ -60,6 +65,8 @@
 - 기본 구조는 Text/Audio/Video GRU encoder → attention pooling → gated fusion → speaker
   embedding + dialogue GRU → causal memory attention(relative distance/same-speaker bias,
   RoPE off) → utterance classifier 이다.
+- 입력 feature 차원이 설정값과 다르면 adapter 가 train bundle 기준으로 자동 추론하거나,
+  명시 차원과 실제 차원이 충돌할 때 오류를 낸다.
 
 ## sklearn 베이스라인 메모
 

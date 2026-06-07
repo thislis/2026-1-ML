@@ -9,15 +9,19 @@ from __future__ import annotations
 
 import argparse
 import io
+import logging
 import sys
 from collections.abc import Sequence
 
 # builder 를 import 하면 모든 구체 컴포넌트가 로드되어 상태 레지스트리가 채워진다.
 from meld_emotion.config.loader import load_config, load_suite
 from meld_emotion.core.status import ComponentStatus, iter_status
+from meld_emotion.logging_config import configure_logging
 from meld_emotion.pipeline import builder
 from meld_emotion.pipeline.suite import SuiteRunner
 from meld_emotion.reporting.report import ComparisonReporter
+
+logger = logging.getLogger(__name__)
 
 
 def _force_utf8() -> None:
@@ -28,14 +32,19 @@ def _force_utf8() -> None:
             stream.reconfigure(encoding="utf-8")
 
 
-def _cmd_run(config_path: str) -> int:
+def _cmd_run(config_path: str, log_level: str, log_file: str | None) -> int:
+    configure_logging(log_level, log_file)
+    logger.info("단일 실험 실행 준비: config=%s", config_path)
     config = load_config(config_path)
     runner = builder.build_experiment(config)
     runner.run()
+    logger.info("단일 실험 실행 완료: %s", config.name)
     return 0
 
 
-def _cmd_compare(config_path: str) -> int:
+def _cmd_compare(config_path: str, log_level: str, log_file: str | None) -> int:
+    configure_logging(log_level, log_file)
+    logger.info("비교 suite 실행 준비: config=%s", config_path)
     suite = load_suite(config_path)
     report = SuiteRunner(suite.name, suite.experiments).run()
     ComparisonReporter(
@@ -43,6 +52,7 @@ def _cmd_compare(config_path: str) -> int:
         robustness_metric=suite.robustness_metric,
         path=suite.output_path,
     ).save(report)
+    logger.info("비교 suite 실행 완료: %s", suite.name)
     return 0
 
 
@@ -81,21 +91,33 @@ def build_parser() -> argparse.ArgumentParser:
 
     run_parser = sub.add_parser("run", help="YAML 설정으로 실험 실행")
     run_parser.add_argument("--config", required=True, help="실험 설정 YAML 경로")
+    _add_logging_args(run_parser)
 
     compare_parser = sub.add_parser("compare", help="여러 실험을 실행하고 비교표 출력")
     compare_parser.add_argument("--config", required=True, help="비교 묶음(suite) YAML 경로")
+    _add_logging_args(compare_parser)
 
     sub.add_parser("status", help="컴포넌트 구현 상태 출력")
     return parser
+
+
+def _add_logging_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=("DEBUG", "INFO", "WARNING", "ERROR"),
+        help="진행 상황 로그 레벨",
+    )
+    parser.add_argument("--log-file", default=None, help="로그를 추가로 저장할 파일 경로")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     _force_utf8()
     args = build_parser().parse_args(argv)
     if args.command == "run":
-        return _cmd_run(args.config)
+        return _cmd_run(args.config, args.log_level, args.log_file)
     if args.command == "compare":
-        return _cmd_compare(args.config)
+        return _cmd_compare(args.config, args.log_level, args.log_file)
     if args.command == "status":
         return _cmd_status()
     return 1

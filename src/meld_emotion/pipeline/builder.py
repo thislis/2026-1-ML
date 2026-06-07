@@ -7,6 +7,7 @@ DIP 의 핵심. 오직 이 모듈만이 모든 구체 구현을 import 하고, �
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Sequence
 
 from meld_emotion.config.schema import (
@@ -51,7 +52,9 @@ from meld_emotion.config.schema import (
     SyntheticConfig,
     TextConceptConfig,
     TfidfConfig,
+    TimeSformerVideoConfig,
     VideoConceptConfig,
+    VideoPrismConfig,
     VisualCueConfig,
     Wav2Vec2XlsrAudioConfig,
     WeightedCombinerConfig,
@@ -91,7 +94,12 @@ from meld_emotion.features.text import (
     TextConceptExtractor,
     TfidfTextExtractor,
 )
-from meld_emotion.features.video import VideoConceptExtractor, VisualCueExtractor
+from meld_emotion.features.video import (
+    TimeSformerVideoExtractor,
+    VideoConceptExtractor,
+    VideoPrismVideoExtractor,
+    VisualCueExtractor,
+)
 from meld_emotion.fusion.combiners import (
     MeanCombiner,
     ProbabilityCombiner,
@@ -126,6 +134,8 @@ from meld_emotion.reporting.report import (
     DashboardExporter,
     JsonReporter,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def build_dataset(config: DatasetConfig) -> DatasetSource:
@@ -195,6 +205,26 @@ def build_extractor(config: ExtractorConfig) -> FeatureExtractor:
         return VideoConceptExtractor()
     if isinstance(config, VisualCueConfig):
         return VisualCueExtractor(dim=config.dim)
+    if isinstance(config, TimeSformerVideoConfig):
+        return TimeSformerVideoExtractor(
+            model_name=config.model_name,
+            output_dim=config.output_dim,
+            batch_size=config.batch_size,
+            num_frames=config.num_frames,
+            frame_size=config.frame_size,
+            normalize=config.normalize,
+            pooling=config.pooling,
+            device=config.device,
+        )
+    if isinstance(config, VideoPrismConfig):
+        return VideoPrismVideoExtractor(
+            model_name=config.model_name,
+            output_dim=config.output_dim,
+            num_frames=config.num_frames,
+            frame_size=config.frame_size,
+            normalize=config.normalize,
+            prefer_batched_input=config.prefer_batched_input,
+        )
     if isinstance(config, PrecomputedMeldFeatureConfig):
         return MeldPrecomputedFeatureExtractor(
             path=config.path,
@@ -322,9 +352,18 @@ def build_scenarios(names: Sequence[str]) -> list[ModalityScenario]:
     return [get_scenario(name) for name in names]
 
 
-def build_experiment(config: ExperimentConfig) -> ExperimentRunner:
+def build_experiment(
+    config: ExperimentConfig, feature_cache: FeatureCache | None = None
+) -> ExperimentRunner:
     """실험 설정으로부터 완전히 연결된 :class:`ExperimentRunner` 를 만든다."""
 
+    logger.info(
+        "실험 구성 시작: name=%s dataset=%s model=%s extractors=%s",
+        config.name,
+        type(config.dataset).__name__,
+        type(config.model).__name__,
+        ",".join(type(extractor).__name__ for extractor in config.extractors),
+    )
     encoder = EmotionLabelEncoder()
     extractors = [build_extractor(e) for e in config.extractors]
     media_loader = MediaLoader(
@@ -332,10 +371,11 @@ def build_experiment(config: ExperimentConfig) -> ExperimentRunner:
         video_max_frames=config.media.video_max_frames,
         video_frame_size=config.media.video_frame_size,
         max_audio_seconds=config.media.max_audio_seconds,
+        min_audio_seconds=config.media.min_audio_seconds,
     )
     feature_pipeline = FeaturePipeline(
         extractors,
-        build_cache(config.cache),
+        feature_cache if feature_cache is not None else build_cache(config.cache),
         media_loader,
         media_error_policy=config.media.on_error,
     )
@@ -352,7 +392,7 @@ def build_experiment(config: ExperimentConfig) -> ExperimentRunner:
         else None
     )
 
-    return ExperimentRunner(
+    runner = ExperimentRunner(
         name=config.name,
         source=build_dataset(config.dataset),
         feature_pipeline=feature_pipeline,
@@ -366,3 +406,11 @@ def build_experiment(config: ExperimentConfig) -> ExperimentRunner:
         eval_split=Split(config.eval_split),
         dropout=dropout,
     )
+    logger.info(
+        "실험 구성 완료: name=%s metrics=%s scenarios=%s reporters=%d",
+        config.name,
+        ",".join(config.evaluation.metrics),
+        ",".join(config.evaluation.scenarios),
+        len(config.reporters),
+    )
+    return runner

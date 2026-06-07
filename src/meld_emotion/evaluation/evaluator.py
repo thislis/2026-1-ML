@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 
 from meld_emotion.core.features import FeatureBundle
@@ -10,6 +11,8 @@ from meld_emotion.core.results import EvaluationReport
 from meld_emotion.core.status import real
 from meld_emotion.core.types import IntArray
 from meld_emotion.evaluation.metrics import build_confusion
+
+logger = logging.getLogger(__name__)
 
 
 @real
@@ -27,7 +30,18 @@ class Evaluator:
         y_true: IntArray,
         scenario: str = "full",
     ) -> EvaluationReport:
+        logger.info(
+            "평가 실행: scenario=%s samples=%d metrics=%s",
+            scenario,
+            bundle.n_samples,
+            ",".join(metric.name for metric in self._metrics),
+        )
         prediction = model.predict(bundle)
         metrics = tuple(metric.compute(y_true, prediction) for metric in self._metrics)
         confusion = build_confusion(y_true, prediction) if self._confusion else None
+        logger.info(
+            "평가 결과: scenario=%s %s",
+            scenario,
+            ", ".join(f"{metric.name}={metric.value:.4f}" for metric in metrics),
+        )
         return EvaluationReport(scenario=scenario, metrics=metrics, confusion=confusion)

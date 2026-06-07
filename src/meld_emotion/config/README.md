@@ -20,7 +20,7 @@
 | `extractors` | 특징 추출기 목록(모달리티 × 임베딩/개념) | `(text_concepts,)` |
 | `model` | 분류기(`early`/`late`, `dialogue_rnn`) | `early` |
 | `dropout` | 학습 시 modality dropout(`None` = 미적용) | `None` |
-| `media` | raw MP4 lazy-load(`audio_sample_rate`, `video_max_frames`, `video_frame_size`, `on_error`) | 16kHz, 32프레임, 64×64, `raise` |
+| `media` | raw MP4 lazy-load(`audio_sample_rate`, `video_max_frames`, `video_frame_size`, `on_error`, audio 길이 상/하한) | 16kHz, 32프레임, 64×64, `raise`, 길이 제한 없음 |
 | `evaluation` | 지표·혼동행렬·강건성 시나리오 | 기본 4지표, `full` |
 | `explainers` | 설명기 목록(permutation/ablation/counterfactual) | `()` |
 | `cache` | 특징 캐시(`memory`/`null`/`disk`) | `memory` |
@@ -68,12 +68,15 @@ model:
 - 데이터셋: `synthetic`, `meld`
 - 특징: `text_concepts`, `text_bow`, `text_tfidf`, `text_embeddings`,
   `text_embeddinggemma`, `audio_concepts`, `audio_mfcc`, `audio_wav2vec2_xlsr`,
-  `video_concepts`, `video_visual`, `meld_precomputed`
+  `video_concepts`, `video_visual`, `video_timesformer`, `video_videoprism`,
+  `meld_precomputed`
 - 모델: `early`, `late`, `dialogue_rnn`
 - 기초 학습기: `majority`, `random`, `centroid`, `linear_regression`, `svm`, `logreg`,
   `random_forest`, `knn`, `xgboost`
-- 결합기/설명기/리포터: `mean`, `weighted`, `stacking`,
-  `permutation`, `modality_ablation`, `counterfactual`, `console`, `json`, `dashboard`
+- 결합기: `mean`, `weighted`, `stacking`
+- 설명기: `permutation`, `modality_ablation`, `counterfactual`
+- 캐시: `memory`, `null`, `disk`
+- 리포터: `console`, `json`, `dashboard`
 
 ## 여러 실험을 기술하는 것: `SuiteConfig`
 
@@ -142,6 +145,52 @@ extractors:
     device: null
 ```
 
+TimeSformer 비디오 임베딩은 다음처럼 선택한다. 실행 환경에는 `uv sync --extra video` 가
+필요하고, 내부적으로 Hugging Face Transformers 의 `TimesformerModel` 로
+`facebook/timesformer-base-finetuned-k400` checkpoint 를 lazy-load 한다. MELD raw MP4 는
+`MediaLoader` 가 프레임을 lazy-load 하고, extractor 가 `num_frames` 개를 균등 샘플링해
+`frame_size`×`frame_size` RGB 입력으로 맞춘 뒤 ImageNet mean/std 정규화를 적용한다. 기본
+pooling 은 CLS token 이며, `pooling: mean` 으로 token 평균 pooling 을 선택할 수 있다.
+
+```yaml
+extractors:
+  - type: video_timesformer
+    model_name: facebook/timesformer-base-finetuned-k400
+    output_dim: 768
+    batch_size: 2
+    num_frames: 8
+    frame_size: 224
+    normalize: true
+    pooling: cls
+    device: null
+```
+
+VideoPrism 비디오 임베딩은 다음처럼 선택한다. 실행 환경에는 `uv sync --extra video` 가 필요하고,
+내부적으로 Google DeepMind VideoPrism JAX/Flax 구현의
+`google/videoprism-base-f16r288` checkpoint 를 사용한다. MELD raw MP4 는 `MediaLoader` 가
+프레임을 lazy-load 하고, extractor 가 `num_frames` 개를 균등 샘플링해 `frame_size`×`frame_size`
+RGB 입력으로 맞춘다.
+macOS arm64 에서는 upstream `videoprism` 의 `tensorflow-cpu` 의존성이 wheel 부재로 설치를
+깨뜨릴 수 있으므로, 이 프로젝트는 `pyproject.toml` 의 uv dependency metadata override 로
+`tensorflow-cpu` 를 제외하고 extractor 안의 `tensorflow.io.gfile` shim 으로 필요한 import 만
+대체한다. 따라서 `uv sync --extra all --extra dev` 경로에서도 VideoPrism 설정을 함께 둘 수 있다.
+
+```yaml
+extractors:
+  - type: video_videoprism
+    model_name: google/videoprism-base-f16r288
+    output_dim: 768
+    num_frames: 16
+    frame_size: 288
+    normalize: true
+    prefer_batched_input: true
+```
+
+세 foundation embedding 을 모두 쓰는 raw MELD 비교 suite 는
+[configs/all_model_w_all_features.yaml](../../../configs/all_model_w_all_features.yaml) 이다. 이
+suite 는 `text_embeddinggemma`, `audio_wav2vec2_xlsr`, `video_timesformer` 를 함께 쓰고,
+`majority`/`random`/early-fusion baseline/`dialogue_rnn` 을 비교한다.
+
 raw media 오류 처리는 `media.on_error` 로 조정한다. 기본값 `raise` 는 파일 누락/손상 시 실험을
 중단하고, `drop_modality` 는 해당 샘플의 해당 모달리티만 missing 으로 처리한다. `drop_sample`
 은 해당 발화 샘플 전체를 학습/평가에서 제외한다. 러너 metadata 에는 raw 로드 전 개수
@@ -149,6 +198,8 @@ raw media 오류 처리는 `media.on_error` 로 조정한다. 기본값 `raise` 
 `media.max_audio_seconds` 를 지정하면 실제 MP4/container 길이가 그 값을 초과하는 audio media 를
 로딩 실패로 처리한다. `drop_sample` 정책과 함께 쓰면 버퍼 용량 부족을 일으키는 긴 MP4와 그에
 대응되는 text 가 모두 학습·평가에서 제외된다.
+`media.min_audio_seconds` 는 CSV 구간 선택 후 너무 짧은 waveform 을 같은 방식으로 제외해
+Wav2Vec2 convolution kernel 오류를 피한다.
 
 MELD.Raw 의 train/test MP4 폴더가 split 별로 다른 경우에는 `MeldConfig` 에 split별 media
 subdir 를 지정한다. EmbeddingGemma 텍스트 임베딩과 Wav2Vec2 XLS-R 오디오 임베딩을 함께 쓰는
@@ -171,6 +222,7 @@ dataset:
 media:
   on_error: drop_sample
   max_audio_seconds: 60.0
+  min_audio_seconds: 0.025
 ```
 
 ## 주의
@@ -178,5 +230,6 @@ media:
 - `ClassVar` 식별자는 필드 순서/기본값 문제를 피하려는 의도다(중첩 기본값은 `default_factory`).
 - 새 스칼라 필드는 **기본값**을 주어야 기존 YAML 과 호환된다.
 - 새 중첩 설정을 YAML 에서 복원해야 한다면 `loader.py` 에 재귀 복원 함수를 추가해야 한다
-  (`model.base`, `late.combiner`, `stacking.meta`, `dialogue_rnn.training`,
-  `media.video_frame_size`/`media.on_error` 가 현재 예시다).
+  (`model.base`, `late.combiner`, `stacking.meta`, `dialogue_rnn` 의 하위 설정,
+  `media.video_frame_size`/`media.on_error`/`media.max_audio_seconds`/
+  `media.min_audio_seconds` 가 현재 예시다).

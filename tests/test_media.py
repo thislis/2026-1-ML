@@ -14,6 +14,7 @@ from meld_emotion.data.media import MediaLoader
 from meld_emotion.features.audio import AudioConceptExtractor
 from meld_emotion.features.text import TextConceptExtractor
 from meld_emotion.features.video import VideoConceptExtractor
+from meld_emotion.pipeline.cache import InMemoryFeatureCache
 from meld_emotion.pipeline.feature_pipeline import FeaturePipeline
 
 
@@ -165,6 +166,22 @@ def test_load_audio_rejects_overlong_source_media(tmp_path: Path) -> None:
         )
 
 
+def test_load_audio_rejects_too_short_selected_segment(tmp_path: Path) -> None:
+    pytest.importorskip("av")
+    path = tmp_path / "short.mp4"
+    _write_mp4_with_audio(path, seconds=0.1)
+
+    with pytest.raises(ValueError, match="허용 하한"):
+        MediaLoader(audio_sample_rate=16000, min_audio_seconds=0.05).load_audio(
+            AudioInput(
+                sample_rate=16000,
+                source_path=path,
+                segment_start=0.0,
+                segment_end=0.01,
+            )
+        )
+
+
 def test_load_video_defaults_to_64_square_frames(tmp_path: Path) -> None:
     path = tmp_path / "clip.mp4"
     _write_mp4(path)
@@ -288,6 +305,32 @@ def test_feature_pipeline_loads_audio_and_video_when_both_extractors_need_them(
     assert loader.video_calls == 1
     assert bundle.matrices[0].values.shape == (1, 6)
     assert bundle.matrices[1].values.shape == (1, 5)
+
+
+def test_feature_pipeline_reuses_cached_media_bundle(tmp_path: Path) -> None:
+    cache = InMemoryFeatureCache()
+    first_loader = _FakeMediaLoader()
+    first = FeaturePipeline(
+        [AudioConceptExtractor()],
+        cache=cache,
+        media_loader=first_loader,
+    )
+    sample = _media_sample(tmp_path / "clip.mp4")
+
+    first_bundle = first.fit_transform([sample], Split.TRAIN)
+
+    second_loader = _FakeMediaLoader()
+    second = FeaturePipeline(
+        [AudioConceptExtractor()],
+        cache=cache,
+        media_loader=second_loader,
+    )
+    second_bundle = second.fit_transform([sample], Split.TRAIN)
+
+    assert first_loader.audio_calls == 1
+    assert second_loader.audio_calls == 0
+    assert second_bundle.uids == first_bundle.uids
+    assert np.allclose(second_bundle.matrices[0].values, first_bundle.matrices[0].values)
 
 
 class _FailingAudioLoader(_FakeMediaLoader):

@@ -22,6 +22,8 @@
 
 `configs/meld_embeddinggemma_wav2vec2_suite.yaml` 은 `modality_ablation` 을 켜서 foundation
 embedding 기반 raw MELD suite 에서 weighted F1 기준 모달리티 기여도를 함께 저장한다.
+`configs/all_model_w_all_features.yaml` 도 같은 설명기를 사용하며, text/audio/video 제거에 따른
+weighted F1 하락폭을 `ComparisonReport` JSON 안의 각 실험 결과에 남긴다.
 
 ## 새 설명기 추가하기
 
@@ -33,5 +35,7 @@ embedding 기반 raw MELD suite 에서 weighted F1 기준 모달리티 기여도
 ## 메모
 
 - 설명기는 `mask_bundle`(fusion)과 `FeatureBundle.select`(core)를 재사용한다.
+- 현재 설명 경로는 이미 추출된 feature space 에서 동작한다. 텍스트 토큰을 삭제한 뒤 원천
+  샘플에서 특징을 다시 뽑는 end-to-end counterfactual 경로는 아직 별도 미구현 함수로 남아 있다.
 - 분류기가 포화(거의 완벽)되면 단일 특징 permutation 중요도는 0 에 가까울 수 있다(특징 중복).
   이때는 모달리티 ablation 이 더 뚜렷한 신호를 준다.

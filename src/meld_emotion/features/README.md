@@ -10,10 +10,13 @@
 | --- | --- | --- |
 | text | `TextConceptExtractor` ✅ | `BowTextExtractor` ✅ · `EmbeddingGemmaTextExtractor` ✅ · `TfidfTextExtractor` ⚠️ · `SentenceEmbeddingExtractor` ⚠️ |
 | audio | `AudioConceptExtractor` ✅ | `Wav2Vec2XlsrAudioExtractor` ✅ · `MfccAcousticExtractor` ⚠️ |
-| video | `VideoConceptExtractor` ✅ | `VisualCueExtractor` ⚠️ |
+| video | `VideoConceptExtractor` ✅ | `TimeSformerVideoExtractor` ✅ · `VideoPrismVideoExtractor` ✅ · `VisualCueExtractor` ⚠️ |
 
 ✅ 완전 구현 · ⚠️ 임시(placeholder, 결정적 수치 특징 반환 + 경고). 개념 추출기는
 제안서의 해석 가능한 개념 벡터 `c = [c_T, c_A, c_V]` 를 구성한다.
+현재 `meld-emotion status` 기준 feature extractor 는 REAL 9개, PLACEHOLDER 4개다. placeholder 는
+`TfidfTextExtractor`, `SentenceEmbeddingExtractor`, `MfccAcousticExtractor`, `VisualCueExtractor`
+이며, 나머지 표의 extractor 는 실제 구현이다.
 
 `EmbeddingGemmaTextExtractor` 는 `sentence-transformers` 로 `google/embeddinggemma-300m` 을
 lazy-load 해 768차원 dense embedding 을 만든다. `output_dim` 을 128/256/512/768 로 지정하면
@@ -64,10 +67,57 @@ extractors:
     normalize: true
 ```
 
+`TimeSformerVideoExtractor` 는 Facebook Research 의 TimeSformer 를 Hugging Face Transformers
+`TimesformerModel` 로 lazy-load 해 `facebook/timesformer-base-finetuned-k400` checkpoint 에서
+768차원 발화 임베딩을 만든다. 공식 TimeSformer 기본 모델과 맞춰 입력 프레임은 기본 8프레임,
+224×224 RGB 로 균등 샘플링/resize 되고 ImageNet mean/std 로 정규화된다. 출력은 기본적으로
+마지막 hidden state 의 CLS token 을 사용하며, `pooling: mean` 으로 token 평균 pooling 도 선택할
+수 있다. 실행 전 `uv sync --extra video` 가 필요하다.
+
+```yaml
+extractors:
+  - type: video_timesformer
+    model_name: facebook/timesformer-base-finetuned-k400
+    output_dim: 768
+    batch_size: 2
+    num_frames: 8
+    frame_size: 224
+    pooling: cls
+    normalize: true
+```
+
+`VideoPrismVideoExtractor` 는 Google DeepMind VideoPrism JAX/Flax 구현으로
+`google/videoprism-base-f16r288` 을 lazy-load 해 비디오 프레임을 768차원 발화 임베딩으로
+바꾼다. 입력 프레임은 `(T,H,W,C)` RGB 또는 RGBA/gray 배열이면 되고, extractor 가 기본
+16프레임을 균등 샘플링해 288×288 RGB, `[0,1]` 범위로 전처리한다. VideoPrism 의 출력 patch
+token 은 모든 token 평균 풀링으로 하나의 벡터가 되며, `output_dim` 을 줄이면 앞 차원을
+truncate 한 뒤 선택적으로 재정규화한다. 실행 전 `uv sync --extra video` 가 필요하다.
+upstream `videoprism` 패키지는 `tensorflow-cpu` 를 의존성으로 선언하지만 macOS arm64 에서 해당
+wheel 이 없어 설치가 실패할 수 있다. 프로젝트의 `pyproject.toml` 은 uv dependency metadata
+override 로 `tensorflow-cpu` 를 lock/install 대상에서 제외하고, extractor 는 VideoPrism import
+시에 필요한 `tensorflow.io.gfile` 만 경량 shim 으로 제공한다. 이 shim 은 Hugging Face 에서 받은
+로컬 `.npz` checkpoint 를 읽는 VideoPrism base encoder 경로를 위한 것이다.
+
+```yaml
+extractors:
+  - type: video_videoprism
+    model_name: google/videoprism-base-f16r288
+    output_dim: 768
+    num_frames: 16
+    frame_size: 288
+    normalize: true
+    prefer_batched_input: true
+```
+
 MELD 팀이 제공한 baseline pickle 을 쓰는 `MeldPrecomputedFeatureExtractor` 도 완전 구현되어
 있다. 이 추출기는 설정에서 `type: meld_precomputed`, `path`, `modality`, `kind` 를 받아
 `FeatureMatrix` 로 변환하며, 데이터셋은 `MeldDatasetSource(metadata_path=...)` 와 함께 쓰는
 것이 기본 경로다.
+
+세 foundation embedding 을 함께 쓰는 raw MELD suite 에서는 `text_embeddinggemma`,
+`audio_wav2vec2_xlsr`, `video_timesformer` 를 조합한다. `FeaturePipeline` 은 raw media 를 chunk
+단위로 준비해 각 extractor 에 전달하고, 동일 feature signature 의 suite 실험끼리는 in-memory
+feature cache 를 공유한다.
 
 ## 새 특징 추출기 추가하기
 
@@ -92,5 +142,6 @@ class MyTextExtractor(BaseFeatureExtractor):
 ## 임시(placeholder) 교체
 
 `features/text/tfidf.py` 등은 결정적 대체 특징을 반환하며 사용 시 한 번 경고한다. 실제 라이브러리
-(scikit-learn/sentence-transformers/transformers/librosa/mediapipe 등)로 채울 때 `@placeholder` 를 떼고 `@real` 로 바꾸면
-`meld-emotion status` 에 자동 반영된다. 무거운 의존성은 `[text]`/`[audio]`/`[video]` extra.
+(scikit-learn TfidfVectorizer, sentence-transformers, librosa, mediapipe/OpenCV 등)로 채울 때
+`@placeholder` 를 떼고 `@real` 로 바꾸면 `meld-emotion status` 에 자동 반영된다. 무거운 의존성은
+`[text]`/`[audio]`/`[video]` extra 에 둔다.

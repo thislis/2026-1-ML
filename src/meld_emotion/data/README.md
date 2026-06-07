@@ -24,9 +24,16 @@ resampling 한다. CSV 의 `StartTime`/`EndTime` 은 초 단위로 파싱되어 
 파일 길이가 CSV 구간 길이와 거의 같으면 전체 파일을 해당 구간으로 간주한다. 비디오 기본값은
 `video_max_frames=32`, `video_frame_size=(64, 64)` 이고, 크기 의미는 `(height, width)` 다.
 프레임은 BGR→RGB, `[0,1]` 범위 `float64` 로 변환된다.
+`video_timesformer` 추출기를 쓰면 이 프레임을 다시 8프레임, 224×224 RGB 입력으로 맞춰
+`facebook/timesformer-base-finetuned-k400` 임베딩을 계산한다. `video_videoprism` 추출기는 같은
+프레임을 16프레임, 288×288 RGB 입력으로 맞춰 `google/videoprism-base-f16r288` 임베딩을
+계산한다. 기본 `video_frame_size` 를 해당 extractor 의 입력 크기에 맞춰 올리면 내부 resize
+비용을 줄일 수 있지만, 메모리 사용량은 늘어난다.
 `media.max_audio_seconds` 를 지정하면 실제 MP4/container 길이가 그 값을 넘는 오디오 파일은
 버퍼 용량 부족을 피하기 위해 로딩 실패로 처리된다. `media.on_error: drop_sample` 과 함께 쓰면
 해당 발화의 text/audio/video 특징이 모두 학습·평가에서 제외된다.
+`media.min_audio_seconds` 는 CSV 구간 선택 후 너무 짧아 Wav2Vec2 convolution 을 통과할 수 없는
+오디오 구간을 같은 방식으로 제외하는 하한이다.
 
 MELD.Raw 처럼 split 마다 MP4 폴더가 다르면 `audio_subdir_train`/`audio_subdir_dev`/
 `audio_subdir_test` 와 `video_subdir_train`/`video_subdir_dev`/`video_subdir_test` 를 지정한다.
@@ -42,6 +49,9 @@ dataset:
   audio_subdir_train: train/train_splits
   audio_subdir_dev: dev_splits_complete
   audio_subdir_test: output_repeated_splits_test
+  video_subdir_train: train/train_splits
+  video_subdir_dev: dev_splits_complete
+  video_subdir_test: output_repeated_splits_test
 ```
 
 이 lazy-load 는 해당 모달리티 추출기가 포함된 `FeaturePipeline` 에서만 실행된다. 텍스트만 쓰는
@@ -57,6 +67,7 @@ media:
   video_frame_size: [64, 64]
   on_error: raise        # raise | drop_modality | drop_sample
   max_audio_seconds: 60.0
+  min_audio_seconds: 0.025
 ```
 
 `media.on_error` 는 raw 파일이 없거나 깨져서 읽을 수 없는 경우의 처리 방식이다. 기본값
@@ -69,6 +80,9 @@ media:
 EmbeddingGemma 텍스트 임베딩과 Wav2Vec2 XLS-R 오디오 임베딩으로 MELD.Raw train/test 를 비교하는
 현재 raw suite 는 split별 MP4 폴더를 위 방식으로 지정하고, train split 의 손상된 MP4 1개를
 `media.on_error: drop_sample` 로 제외한다.
+세 모달리티 foundation embedding 을 모두 쓰는 `configs/all_model_w_all_features.yaml` 도 같은
+split별 MP4 경로와 `drop_sample` 정책을 사용하며, 비디오 extractor 가 있을 때만 프레임을
+lazy-load 한다.
 
 ## Precomputed Feature Baseline
 
