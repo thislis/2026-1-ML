@@ -14,6 +14,7 @@ from meld_emotion.data.media import MediaLoader
 from meld_emotion.features.audio import AudioConceptExtractor
 from meld_emotion.features.text import TextConceptExtractor
 from meld_emotion.features.video import VideoConceptExtractor
+from meld_emotion.pipeline.cache import InMemoryFeatureCache
 from meld_emotion.pipeline.feature_pipeline import FeaturePipeline
 
 
@@ -304,6 +305,32 @@ def test_feature_pipeline_loads_audio_and_video_when_both_extractors_need_them(
     assert loader.video_calls == 1
     assert bundle.matrices[0].values.shape == (1, 6)
     assert bundle.matrices[1].values.shape == (1, 5)
+
+
+def test_feature_pipeline_reuses_cached_media_bundle(tmp_path: Path) -> None:
+    cache = InMemoryFeatureCache()
+    first_loader = _FakeMediaLoader()
+    first = FeaturePipeline(
+        [AudioConceptExtractor()],
+        cache=cache,
+        media_loader=first_loader,
+    )
+    sample = _media_sample(tmp_path / "clip.mp4")
+
+    first_bundle = first.fit_transform([sample], Split.TRAIN)
+
+    second_loader = _FakeMediaLoader()
+    second = FeaturePipeline(
+        [AudioConceptExtractor()],
+        cache=cache,
+        media_loader=second_loader,
+    )
+    second_bundle = second.fit_transform([sample], Split.TRAIN)
+
+    assert first_loader.audio_calls == 1
+    assert second_loader.audio_calls == 0
+    assert second_bundle.uids == first_bundle.uids
+    assert np.allclose(second_bundle.matrices[0].values, first_bundle.matrices[0].values)
 
 
 class _FailingAudioLoader(_FakeMediaLoader):

@@ -7,10 +7,12 @@ disgust)을 분류하고, **해석 가능한 개념 벡터** `c = [c_T, c_A, c_V
 반사실(counterfactual) 설명**, **모달리티 누락에 대한 강건성**을 함께 평가하는 모듈형
 파이프라인이다.
 
-> 이 저장소는 **아키텍처 골격**이다. 파이프라인 전체(데이터→특징→융합→분류→평가→설명→
-> 리포트)가 합성 데이터로 실제 실행/테스트되며, 무거운 실제 구현(TF-IDF, MFCC,
-> 얼굴 랜드마크)은 의도적으로 임시(placeholder) 또는 미구현으로 남겨
-> 두었다. 현재 상태는 `uv run meld-emotion status` 로 항상 확인할 수 있다.
+> 이 저장소는 **아키텍처 골격에서 출발해 실제 MELD raw/precomputed 실험까지 확장된 코드**다.
+> 파이프라인 전체(데이터→특징→융합→분류→평가→설명→리포트)가 합성 데이터로 즉시
+> 실행/테스트되고, MELD CSV/metadata, raw MP4 lazy-load, foundation embedding, sklearn/XGBoost,
+> dialogue-level PyTorch 모델도 설정으로 연결된다. 아직 TF-IDF, sentence embedding, MFCC,
+> visual cue, stacking combiner, disk cache, dashboard rendering 은 placeholder 경계로 남아 있다.
+> 현재 상태는 `uv run meld-emotion status` 로 항상 확인할 수 있다.
 
 ## 설계 목표
 
@@ -26,9 +28,12 @@ disgust)을 분류하고, **해석 가능한 개념 벡터** `c = [c_T, c_A, c_V
 ```bash
 uv sync --extra dev                                    # 환경 구성 (numpy + pytest + ruff + mypy)
 uv run meld-emotion run --config configs/example_synthetic.yaml   # 전체 파이프라인 즉시 실행
+uv run meld-emotion run --config configs/example_synthetic.yaml --log-level DEBUG --log-file outputs/run.log
 uv sync --extra deep                                   # PyTorch dialogue RNN 사용 시
 uv run meld-emotion run --config configs/example_meld_dialogue_rnn.yaml
 uv run meld-emotion compare --config configs/example_suite.yaml   # 여러 실험 비교표(Early/Late 등)
+uv sync --extra text --extra audio --extra video --extra deep      # 세 foundation feature + dialogue 비교 시
+uv run meld-emotion compare --config configs/all_model_w_all_features.yaml
 uv run meld-emotion status                             # 구현 상태(완료/임시/미구현) 표
 uv run python -m pytest -q                                       # 단위 + end-to-end 테스트(xgboost native 제외)
 uv sync --extra xgboost                                        # XGBoost native 테스트 의존성
@@ -36,6 +41,11 @@ uv run python -m pytest -q -m xgboost_native                     # xgboost nativ
 uv run mypy src                                        # 정적 타입 검사 (strict)
 uv run ruff check .                                    # 린트
 ```
+
+`run`/`compare` 는 기본적으로 `INFO` 레벨 진행 로그를 stderr 로 출력한다. 더 자세히 보려면
+`--log-level DEBUG`, 파일에도 남기려면 `--log-file outputs/run.log` 를 추가한다.
+FeaturePipeline 은 raw media 를 chunk 단위로 읽고 최종 feature matrix 만 누적하므로, 큰 MELD MP4
+실험에서도 메모리에 원본 waveform/frame 전체를 오래 붙잡지 않는다.
 
 macOS arm64 환경에서는 PyTorch 와 XGBoost 가 서로 다른 OpenMP(`libomp`) 런타임을 같은 Python
 프로세스에 올릴 때 native segfault 가 날 수 있다. 그래서 기본 pytest 는 `xgboost_native`
@@ -82,6 +92,47 @@ extractors:
     chunk_seconds: 30.0
 ```
 
+비디오 임베딩은 시각 통계 placeholder(`type: video_visual`) 외에
+`facebook/timesformer-base-finetuned-k400` 기반 `type: video_timesformer` 도 선택할 수 있다.
+이 경로는 `uv sync --extra video` 가 필요하며, Facebook Research 의 TimeSformer 를 Hugging Face
+Transformers `TimesformerModel` 경로로 lazy-load 한다. 입력 프레임은 extractor 가 8프레임,
+224×224 RGB, ImageNet 정규화 입력으로 맞춘 뒤 마지막 hidden state 의 CLS token(또는 설정에
+따라 token 평균)을 발화 단위 embedding 으로 만든다.
+
+```yaml
+extractors:
+  - type: video_timesformer
+    model_name: facebook/timesformer-base-finetuned-k400
+    output_dim: 768
+    num_frames: 8
+    frame_size: 224
+    pooling: cls
+    normalize: true
+```
+
+비디오 임베딩은 추가로
+`google/videoprism-base-f16r288` 기반 `type: video_videoprism` 도 선택할 수 있다. 이 경로는
+`uv sync --extra video` 가 필요하며, Google DeepMind VideoPrism JAX/Flax 구현으로 checkpoint 를
+lazy-load 한다. 입력 프레임은 extractor 가 16프레임, 288×288 RGB, `[0,1]` 범위로 맞춘 뒤
+VideoPrism patch token 을 평균 풀링해 발화 단위 embedding 으로 만든다.
+VideoPrism 패키지는 upstream dependency metadata 에 `tensorflow-cpu` 를 포함하지만,
+`tensorflow-cpu==2.21.0` 은 macOS arm64 wheel 이 없어 `uv sync --extra all --extra dev` 를
+막을 수 있다. 이 프로젝트는 [pyproject.toml](pyproject.toml) 의 `tool.uv.dependency-metadata`
+override 로 `tensorflow-cpu` 를 제외해 lock 하고, extractor 내부에서 VideoPrism 이 import 시
+필요로 하는 `tensorflow.io.gfile` 만 경량 shim 으로 제공한다. 따라서 macOS arm64 에서도
+`uv sync --extra all --extra dev` 가 통과한다.
+
+```yaml
+extractors:
+  - type: video_videoprism
+    model_name: google/videoprism-base-f16r288
+    output_dim: 768
+    num_frames: 16
+    frame_size: 288
+    normalize: true
+    prefer_batched_input: true
+```
+
 MELD.Raw 의 train/test 를 EmbeddingGemma 텍스트 임베딩 + Wav2Vec2 XLS-R 오디오 임베딩으로
 처리해 여러 모델을 비교하려면 다음 suite 를 쓴다.
 
@@ -100,12 +151,25 @@ Wav2Vec2 self-attention buffer 용량 부족을 피하기 위해 샘플 전체�
 weighted F1 기준 모달리티별 기여도를 함께 남긴다. 출력 파일은
 `outputs/meld_embeddinggemma_wav2vec2_models.json` 이다.
 
+텍스트·오디오·비디오 세 foundation embedding 과 주요 모델을 함께 비교하려면 다음 suite 를 쓴다.
+
+```bash
+uv sync --extra text --extra audio --extra video --extra deep
+uv run meld-emotion compare --config configs/all_model_w_all_features.yaml
+```
+
+이 suite 는 `text_embeddinggemma`, `audio_wav2vec2_xlsr`, `video_timesformer` 를 함께 사용하고
+`majority`, `random`, early-fusion 계열, `dialogue_rnn` 을 비교한다. 강건성 시나리오는 `full`,
+`no_text`, `no_audio`, `no_video`, `text_only`, `audio_only`, `video_only` 이며 출력 파일은
+`outputs/all_model_w_all_features.json` 이다.
+
 실제 MELD 실험 템플릿은 [configs/example_meld_early_svm.yaml](configs/example_meld_early_svm.yaml)
 및 dialogue-level PyTorch 모델용
 [configs/example_meld_dialogue_rnn.yaml](configs/example_meld_dialogue_rnn.yaml) 이다.
 MELD CSV/metadata 로딩, SVM 계열 베이스라인, EmbeddingGemma 텍스트 임베딩,
-Wav2Vec2 XLS-R 오디오 임베딩은 구현되어 있고, raw MP4 는 필요한
-스트림만 lazy-load 한다(오디오 extractor 는 waveform 만, 비디오 extractor 는 프레임만 적재).
+Wav2Vec2 XLS-R 오디오 임베딩, TimeSformer/VideoPrism 비디오 임베딩은 구현되어 있고, raw MP4 는
+필요한 스트림만 lazy-load 한다(오디오 extractor 는 waveform 만, 비디오 extractor 는 프레임만
+적재).
 아직 남은 임시 경계(TF-IDF, MFCC, 얼굴 랜드마크 등)에 도달하면 placeholder 경고로 알려준다.
 `dialogue_rnn` 모델은 발화별 특징을 dialogue batch 로 재구성해 GRU/LSTM modality encoder,
 gated fusion, speaker-aware dialogue GRU, causal memory attention(RoPE 기본 off)을 학습한다.
@@ -156,8 +220,10 @@ DatasetSource → FeaturePipeline(추출기들) → FeatureBundle
 - **무엇이 되어 있나**: `uv run meld-emotion status` 가 [core/status.py](src/meld_emotion/core/status.py)
   레지스트리에서 직접 읽어 REAL / PLACEHOLDER / UNIMPLEMENTED 를 출력한다. 손으로 관리하는
   목록이 아니므로 코드와 어긋나지 않는다.
-  현재 상태 기준 전체 49개 컴포넌트 중 REAL 42개, PLACEHOLDER 7개, UNIMPLEMENTED 0개다.
+  현재 상태 기준 전체 51개 컴포넌트 중 REAL 44개, PLACEHOLDER 7개, UNIMPLEMENTED 0개다.
   `MediaLoader` 는 MP4 오디오 waveform 과 비디오 프레임을 분리해서 lazy-load 한다.
+  suite 실행은 같은 dataset/extractor/media signature 를 가진 실험끼리 in-memory feature cache 를
+  공유한다. 다만 `DiskFeatureCache` 는 아직 실행 간 영속화가 아닌 인메모리 위임 placeholder 다.
 - **무언가를 추가/교체하려면**: 해당 축의 패키지 README 의 "새 … 추가하기" 절을 따른다.
   공통 절차는 (1) Protocol 을 만족하는 클래스 작성 → (2) [config/schema.py](src/meld_emotion/config/schema.py)
   에 설정 dataclass 추가·등록 → (3) [pipeline/builder.py](src/meld_emotion/pipeline/builder.py)

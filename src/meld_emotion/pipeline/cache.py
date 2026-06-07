@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from meld_emotion.core.features import FeatureMatrix
+from meld_emotion.core.features import FeatureBundle, FeatureMatrix
 from meld_emotion.core.status import note_placeholder_use, placeholder, real
 
 
@@ -17,12 +17,19 @@ class InMemoryFeatureCache:
 
     def __init__(self) -> None:
         self._store: dict[str, FeatureMatrix] = {}
+        self._bundles: dict[str, FeatureBundle] = {}
 
     def get(self, key: str) -> FeatureMatrix | None:
         return self._store.get(key)
 
     def put(self, key: str, matrix: FeatureMatrix) -> None:
         self._store[key] = matrix
+
+    def get_bundle(self, key: str) -> FeatureBundle | None:
+        return self._bundles.get(key)
+
+    def put_bundle(self, key: str, bundle: FeatureBundle) -> None:
+        self._bundles[key] = bundle
 
 
 @real
@@ -33,6 +40,12 @@ class NullFeatureCache:
         return None
 
     def put(self, key: str, matrix: FeatureMatrix) -> None:
+        return None
+
+    def get_bundle(self, key: str) -> FeatureBundle | None:
+        return None
+
+    def put_bundle(self, key: str, bundle: FeatureBundle) -> None:
         return None
 
 
@@ -50,3 +63,10 @@ class DiskFeatureCache:
     def put(self, key: str, matrix: FeatureMatrix) -> None:
         note_placeholder_use(self)
         self._delegate.put(key, matrix)
+
+    def get_bundle(self, key: str) -> FeatureBundle | None:
+        return self._delegate.get_bundle(key)
+
+    def put_bundle(self, key: str, bundle: FeatureBundle) -> None:
+        note_placeholder_use(self)
+        self._delegate.put_bundle(key, bundle)

@@ -1,5 +1,37 @@
 # Version History
 
+## current_code_sync
+
+현재 코드 기준 구현 상태는 `uv run meld-emotion status` 로 확인되며, 전체 51개 컴포넌트 중
+REAL 44개, PLACEHOLDER 7개, UNIMPLEMENTED 0개다. REAL 구현에는 MELD CSV/metadata loader,
+raw MP4 audio/video lazy loader, EmbeddingGemma/Wav2Vec2 XLS-R/TimeSformer/VideoPrism extractor,
+sklearn/XGBoost baseline, dialogue-level PyTorch classifier, suite runner, console/JSON/comparison
+reporter 가 포함된다.
+
+세 foundation embedding 을 모두 쓰는 최신 raw MELD 비교 설정은 다음이다.
+
+```bash
+/Users/safeailab_macmini/Desktop/2026-1-ML/configs/all_model_w_all_features.yaml
+```
+
+재현 명령은 프로젝트 루트에서 실행한다.
+
+```bash
+cd /Users/safeailab_macmini/Desktop/2026-1-ML
+uv sync --extra text --extra audio --extra video --extra deep
+uv run meld-emotion compare --config configs/all_model_w_all_features.yaml
+```
+
+이 suite 는 `text_embeddinggemma`, `audio_wav2vec2_xlsr`, `video_timesformer` 를 함께 사용하고
+`majority`, `random`, early-fusion baseline, `dialogue_rnn` 을 비교한다. 평가는
+`full`, `no_text`, `no_audio`, `no_video`, `text_only`, `audio_only`, `video_only` 시나리오를
+포함하며, `modality_ablation` 설명기가 weighted F1 하락폭 기준 모달리티 기여도를 저장한다.
+출력 파일은 `outputs/all_model_w_all_features.json` 이다.
+
+suite runner 는 dataset/extractors/media/train split/eval split signature 가 같은 실험끼리
+`InMemoryFeatureCache` 를 공유한다. 따라서 같은 suite 안의 foundation feature 는 가능한 한
+재사용된다. 다만 `DiskFeatureCache` 는 아직 실행 간 영속화가 아니라 인메모리 위임 placeholder 다.
+
 ## ours_v2
 
 `ours_v2` 는 MELD.Raw 의 CSV/MP4를 이 프로젝트 파이프라인 안에서 직접 읽고,
@@ -35,8 +67,9 @@ uv run huggingface-cli whoami
 Transformers 와 PyTorch 가 필요하고, raw MP4 오디오는 `MediaLoader` 가 16kHz mono waveform 으로
 lazy-load 한다. 현재 장비에서는 MPS 가 사용 가능하지 않아 suite 의 두 foundation extractor 는
 `device: cpu` 로 명시한다. 첫 실행은 train/test 전체 발화에 대해 두 foundation model embedding 을
-계산하므로 오래 걸린다. 현재 `DiskFeatureCache` 는 placeholder 이고, suite 각 실험은 별도
-`ExperimentRunner` 로 조립되므로 foundation embedding 이 실험별로 다시 계산될 수 있다.
+계산하므로 오래 걸린다. suite 내부에서는 같은 feature signature 를 가진 실험끼리
+`InMemoryFeatureCache` 를 공유하지만, `DiskFeatureCache` 는 아직 실행 간 영속화가 아닌
+placeholder 다.
 
 ### 사용 데이터와 경로
 
@@ -184,7 +217,8 @@ train/dev/test media path 가 실제 파일을 가리키는지 확인한다.
 ### ours_v2의 명확한 한계
 
 - video feature 는 아직 사용하지 않는다. `video_subdir_*` 는 raw MELD 경로 정합성을 위해 지정돼
-  있지만 extractor 목록에는 video 가 없다.
+  있지만 `ours_v2` extractor 목록에는 video 가 없다. video foundation embedding 은
+  `current_code_sync` 의 `all_model_w_all_features.yaml` 에서 사용한다.
 - foundation embedding 계산 결과를 실행 간 영속화하는 disk cache 는 아직 placeholder 다.
 - EmbeddingGemma/Wav2Vec2 모델 다운로드와 Hugging Face 접근 권한은 실행 환경에 의존한다.
 - raw audio foundation embedding 은 구현됐지만 MFCC placeholder, visual cue placeholder,

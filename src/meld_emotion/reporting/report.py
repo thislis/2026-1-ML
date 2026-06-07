@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import logging
 from collections.abc import Mapping, Sequence
 from enum import Enum
 from pathlib import Path
@@ -23,6 +24,8 @@ from meld_emotion.core.results import (
     ExperimentResult,
 )
 from meld_emotion.core.status import note_placeholder_use, placeholder, real
+
+logger = logging.getLogger(__name__)
 
 
 def _key(key: object) -> str:
@@ -60,6 +63,7 @@ class JsonReporter:
             json.dumps(_jsonable(result), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        logger.info("JSON 리포트 저장 완료: path=%s", self._path)
 
 
 @real
@@ -68,6 +72,7 @@ class ConsoleReporter:
 
     def save(self, result: ExperimentResult) -> None:
         print(self.format(result))
+        logger.info("콘솔 리포트 출력 완료: experiment=%s", result.name)
 
     def format(self, result: ExperimentResult) -> str:
         lines: list[str] = [f"=== Experiment: {result.name} ==="]
@@ -124,6 +129,7 @@ class DashboardExporter:
         }
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        logger.info("대시보드 데이터 저장 완료: path=%s", self._path)
 
 
 def _render_table(headers: Sequence[str], rows: Sequence[Sequence[str]]) -> list[str]:
@@ -165,6 +171,7 @@ class ComparisonReporter:
             json.dumps(_jsonable(report), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        logger.info("비교 리포트 저장 완료: path=%s", self._path)
 
     def format(self, report: ComparisonReport) -> str:
         ok = list(report.successful())

@@ -120,7 +120,7 @@ class Wav2Vec2XlsrAudioExtractor(BaseFeatureExtractor):
             )
         wave = np.asarray(sample.audio.waveform, dtype=np.float32).reshape(-1)
         if self._max_seconds is not None:
-            max_samples = max(1, int(round(self._sampling_rate * self._max_seconds)))
+            max_samples = max(1, round(self._sampling_rate * self._max_seconds))
             if wave.size > max_samples:
                 wave = wave[:max_samples]
         return wave if wave.size > 0 else None
@@ -146,7 +146,7 @@ class Wav2Vec2XlsrAudioExtractor(BaseFeatureExtractor):
     def _chunks(self, waveform: np.ndarray) -> list[np.ndarray]:
         if self._chunk_seconds is None:
             return [waveform]
-        chunk_size = max(1, int(round(self._sampling_rate * self._chunk_seconds)))
+        chunk_size = max(1, round(self._sampling_rate * self._chunk_seconds))
         if waveform.size <= chunk_size:
             return [waveform]
         return [waveform[start : start + chunk_size] for start in range(0, waveform.size, chunk_size)]

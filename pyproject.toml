@@ -12,7 +12,16 @@ dependencies = [
 [project.optional-dependencies]
 text = ["scikit-learn>=1.4", "sentence-transformers>=2.6", "transformers>=4.56"]
 audio = ["av>=11", "librosa>=0.10", "soundfile>=0.12", "transformers>=4.56", "torch>=2.2"]
-video = ["opencv-python>=4.9", "mediapipe>=0.10"]
+video = [
+    "opencv-python>=4.9",
+    "mediapipe>=0.10",
+    "transformers>=4.56",
+    "torch>=2.2",
+    "jax>=0.4",
+    "flax>=0.8",
+    "huggingface-hub>=0.24",
+    "videoprism @ git+https://github.com/google-deepmind/videoprism.git",
+]
 xgboost = ["xgboost>=2.0"]
 deep = ["torch>=2.2"]
 all = ["meld-emotion[text,audio,video,xgboost,deep]"]
@@ -32,6 +41,22 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/meld_emotion"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[[tool.uv.dependency-metadata]]
+name = "videoprism"
+version = "1.0.0"
+requires-dist = [
+    "absl-py",
+    "einops",
+    "einshape",
+    "flax",
+    "huggingface-hub",
+    "numpy",
+    "sentencepiece",
+]
 
 [tool.ruff]
 line-length = 100
@@ -76,6 +101,10 @@ module = [
     "soundfile.*",
     "cv2.*",
     "mediapipe.*",
+    "jax",
+    "jax.*",
+    "flax.*",
+    "videoprism.*",
     "sentence_transformers.*",
     "transformers.*",
     "xgboost.*",
