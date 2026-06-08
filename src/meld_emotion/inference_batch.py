@@ -37,6 +37,9 @@ DEFAULT_PREDICTIONS_PATH = "outputs/test_batch_xai_predictions.jsonl"
 DEFAULT_SUMMARY_PATH = "outputs/test_batch_xai_summary.json"
 DEFAULT_REPORT_PATH = "outputs/dialogue_rnn_xai_analysis.md"
 DEFAULT_SUITE_PATH = "outputs/all_model_w_all_features.json"
+DEFAULT_MANIFEST_NAME = "eval_manifest.json"
+DUPLICATE_UID_FAIL_FAST = "fail_fast"
+DUPLICATE_UID_DROP_ALL = "drop_all_rows_with_duplicated_uid"
 
 _CLASS_LABELS = tuple(emotion.value for emotion in EMOTION_ORDER)
 
@@ -48,6 +51,7 @@ class BatchOutputPaths:
     predictions: Path
     summary: Path
     report: Path
+    manifest: Path
 
 
 @dataclass(frozen=True)
@@ -56,6 +60,32 @@ class BatchInferenceResult:
 
     paths: BatchOutputPaths
     summary: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class JsonlLoadManifest:
+    """Auditable record of exactly which JSONL rows enter evaluation."""
+
+    raw_lines: int
+    valid_json_lines: int
+    invalid_rows_skipped: int
+    duplicate_uid_count: int
+    duplicate_rows: tuple[Mapping[str, Any], ...]
+    evaluated_records: int
+    evaluated_uids: tuple[str, ...]
+    dropped_uid_policy: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "raw_lines": self.raw_lines,
+            "valid_json_lines": self.valid_json_lines,
+            "invalid_rows_skipped": self.invalid_rows_skipped,
+            "duplicate_uid_count": self.duplicate_uid_count,
+            "duplicate_rows": list(self.duplicate_rows),
+            "evaluated_records": self.evaluated_records,
+            "evaluated_uids": list(self.evaluated_uids),
+            "dropped_uid_policy": self.dropped_uid_policy,
+        }
 
 
 def run_batch_inference(
@@ -67,11 +97,13 @@ def run_batch_inference(
     predictions_path: str | Path = DEFAULT_PREDICTIONS_PATH,
     summary_path: str | Path = DEFAULT_SUMMARY_PATH,
     report_path: str | Path = DEFAULT_REPORT_PATH,
+    manifest_path: str | Path | None = None,
     suite_path: str | Path = DEFAULT_SUITE_PATH,
     xai_steps: int = 32,
     xai_top_k: int = 10,
     resume: bool = False,
     limit: int | None = None,
+    duplicate_uid_policy: str = DUPLICATE_UID_FAIL_FAST,
 ) -> BatchInferenceResult:
     """Run pooled prediction plus fine-grained XAI for a MELD CSV split.
 
@@ -91,8 +123,12 @@ def run_batch_inference(
         predictions=Path(predictions_path),
         summary=Path(summary_path),
         report=Path(report_path),
+        manifest=Path(manifest_path)
+        if manifest_path is not None
+        else _manifest_path(predictions_path),
     )
-    for path in (paths.predictions, paths.summary, paths.report):
+    _validate_duplicate_uid_policy(duplicate_uid_policy)
+    for path in (paths.predictions, paths.summary, paths.report, paths.manifest):
         path.parent.mkdir(parents=True, exist_ok=True)
     if not resume and paths.predictions.exists():
         paths.predictions.write_text("", encoding="utf-8")
@@ -142,9 +178,7 @@ def run_batch_inference(
                     f.write(json.dumps(record, ensure_ascii=False) + "\n")
                     f.flush()
             except Exception as exc:  # pragma: no cover - exercised with real media/model failures
-                logger.exception(
-                    "XAI failed for dialogue=%s", dialogue_samples[0].dialogue_id
-                )
+                logger.exception("XAI failed for dialogue=%s", dialogue_samples[0].dialogue_id)
                 for sample in dialogue_samples:
                     if sample.uid in processed:
                         continue
@@ -154,11 +188,27 @@ def run_batch_inference(
                     f.write(json.dumps(record, ensure_ascii=False) + "\n")
                     f.flush()
 
-    records, invalid_rows = _load_prediction_records_with_errors(paths.predictions)
-    summary = dict(analyze_batch_records(records, suite_path=suite_path))
+    records, manifest = load_prediction_records_with_manifest(
+        paths.predictions,
+        duplicate_uid_policy=duplicate_uid_policy,
+    )
+    paths.manifest.write_text(
+        json.dumps(manifest.to_dict(), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    summary = dict(
+        analyze_batch_records(
+            records,
+            suite_path=suite_path,
+            evaluated_uids=manifest.evaluated_uids,
+        )
+    )
     summary["jsonl_warnings"] = {
-        "invalid_rows_skipped": invalid_rows,
+        "invalid_rows_skipped": manifest.invalid_rows_skipped,
+        "duplicate_uid_count": manifest.duplicate_uid_count,
+        "dropped_uid_policy": manifest.dropped_uid_policy,
         "source": str(paths.predictions),
+        "manifest": str(paths.manifest),
     }
     paths.summary.write_text(
         json.dumps(_jsonable(summary), ensure_ascii=False, indent=2),
@@ -172,25 +222,35 @@ def run_batch_inference(
 def load_prediction_records(path: str | Path) -> tuple[Mapping[str, Any], ...]:
     """Load JSONL prediction/XAI records."""
 
-    records, _invalid_rows = _load_prediction_records_with_errors(path)
+    records, _manifest = _load_prediction_records_with_manifest(path)
     return records
 
 
-def _load_prediction_records_with_errors(
+def _load_prediction_records_with_manifest(
     path: str | Path,
-) -> tuple[tuple[Mapping[str, Any], ...], int]:
-    """Load valid JSONL objects and skip interrupted/corrupt rows.
+) -> tuple[tuple[Mapping[str, Any], ...], JsonlLoadManifest]:
+    return load_prediction_records_with_manifest(path, duplicate_uid_policy=DUPLICATE_UID_FAIL_FAST)
+
+
+def load_prediction_records_with_manifest(
+    path: str | Path,
+    *,
+    duplicate_uid_policy: str = DUPLICATE_UID_FAIL_FAST,
+) -> tuple[tuple[Mapping[str, Any], ...], JsonlLoadManifest]:
+    """Load valid JSONL objects and build an auditable evaluation manifest.
 
     Long batch XAI runs are resumable and can be interrupted while a row is being
     written. Skipping malformed rows keeps the completed records usable; the caller
-    records the skipped count in the summary artifact.
+    records the skipped count in the manifest artifact. Duplicate UIDs are fail-fast
+    by default because they make metric denominators ambiguous.
     """
 
-    records: list[Mapping[str, Any]] = []
+    _validate_duplicate_uid_policy(duplicate_uid_policy)
+    valid_rows: list[tuple[int, Mapping[str, Any], str]] = []
     invalid_rows = 0
-    for line_no, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), start=1):
-        if not line.strip():
-            continue
+    valid_json_lines = 0
+    lines = Path(path).read_text(encoding="utf-8").splitlines()
+    for line_no, line in enumerate(lines, start=1):
         try:
             value = json.loads(line)
         except json.JSONDecodeError as exc:
@@ -202,6 +262,7 @@ def _load_prediction_records_with_errors(
                 exc,
             )
             continue
+        valid_json_lines += 1
         if not isinstance(value, Mapping):
             invalid_rows += 1
             logger.warning(
@@ -211,17 +272,55 @@ def _load_prediction_records_with_errors(
                 value,
             )
             continue
-        records.append(value)
-    return tuple(records), invalid_rows
+        uid = value.get("uid")
+        if not isinstance(uid, str) or not uid:
+            invalid_rows += 1
+            logger.warning(
+                "JSONL row 에 유효한 uid 가 없어서 건너뜀: path=%s line=%d value=%r",
+                path,
+                line_no,
+                value,
+            )
+            continue
+        valid_rows.append((line_no, value, uid))
+
+    duplicate_rows = _duplicate_rows(valid_rows)
+    duplicate_uids = {str(item["uid"]) for item in duplicate_rows}
+    if duplicate_uids and duplicate_uid_policy == DUPLICATE_UID_FAIL_FAST:
+        examples = ", ".join(sorted(duplicate_uids)[:5])
+        raise ValueError(
+            "duplicate uid 값이 JSONL 에 존재합니다: "
+            f"{examples}. 중복을 모두 제외하려면 duplicate_uid_policy="
+            f"{DUPLICATE_UID_DROP_ALL!r} 옵션을 사용하세요."
+        )
+
+    if duplicate_uid_policy == DUPLICATE_UID_DROP_ALL and duplicate_uids:
+        valid_rows = [row for row in valid_rows if row[2] not in duplicate_uids]
+
+    records = tuple(row[1] for row in valid_rows)
+    evaluated_uids = tuple(row[2] for row in valid_rows)
+    manifest = JsonlLoadManifest(
+        raw_lines=len(lines),
+        valid_json_lines=valid_json_lines,
+        invalid_rows_skipped=invalid_rows,
+        duplicate_uid_count=len(duplicate_rows),
+        duplicate_rows=duplicate_rows,
+        evaluated_records=len(records),
+        evaluated_uids=evaluated_uids,
+        dropped_uid_policy=duplicate_uid_policy,
+    )
+    return records, manifest
 
 
 def analyze_batch_records(
     records: Sequence[Mapping[str, Any]],
     *,
     suite_path: str | Path = DEFAULT_SUITE_PATH,
+    evaluated_uids: Sequence[str] | None = None,
 ) -> Mapping[str, Any]:
     """Aggregate metrics, XAI patterns, and baseline comparison into one summary."""
 
+    records = _filter_records_to_manifest(records, evaluated_uids)
     metric_summary = _metric_summary(records)
     xai_summary = _xai_pattern_summary(records)
     suite = _suite_comparison(suite_path)
@@ -459,6 +558,50 @@ def _read_processed_uids(path: Path) -> set[str]:
     return processed
 
 
+def _manifest_path(predictions_path: str | Path) -> Path:
+    return Path(predictions_path).parent / DEFAULT_MANIFEST_NAME
+
+
+def _validate_duplicate_uid_policy(policy: str) -> None:
+    if policy not in {DUPLICATE_UID_FAIL_FAST, DUPLICATE_UID_DROP_ALL}:
+        raise ValueError(
+            "duplicate_uid_policy 는 "
+            f"{DUPLICATE_UID_FAIL_FAST!r} 또는 {DUPLICATE_UID_DROP_ALL!r} 이어야 합니다: "
+            f"{policy!r}"
+        )
+
+
+def _duplicate_rows(
+    rows: Sequence[tuple[int, Mapping[str, Any], str]],
+) -> tuple[Mapping[str, Any], ...]:
+    by_uid: dict[str, list[int]] = defaultdict(list)
+    for line_no, _record, uid in rows:
+        by_uid[uid].append(line_no)
+    return tuple(
+        {
+            "uid": uid,
+            "count": len(line_numbers),
+            "line_numbers": tuple(line_numbers),
+        }
+        for uid, line_numbers in by_uid.items()
+        if len(line_numbers) > 1
+    )
+
+
+def _filter_records_to_manifest(
+    records: Sequence[Mapping[str, Any]],
+    evaluated_uids: Sequence[str] | None,
+) -> tuple[Mapping[str, Any], ...]:
+    if evaluated_uids is None:
+        return tuple(records)
+    allowed = set(evaluated_uids)
+    return tuple(
+        record
+        for record in records
+        if isinstance(record.get("uid"), str) and record["uid"] in allowed
+    )
+
+
 def _metric_summary(records: Sequence[Mapping[str, Any]]) -> Mapping[str, Any]:
     labels = list(_CLASS_LABELS)
     y_true = [str(record["gold"]) for record in records if record.get("gold") in labels]
@@ -475,20 +618,14 @@ def _metric_summary(records: Sequence[Mapping[str, Any]]) -> Mapping[str, Any]:
         if total
         else 0.0
     )
-    per_class = {
-        label: _precision_recall_f1(label, y_true, y_pred)
-        for label in labels
-    }
+    per_class = {label: _precision_recall_f1(label, y_true, y_pred) for label in labels}
     macro_f1 = float(np.mean([item["f1"] for item in per_class.values()])) if labels else 0.0
     weighted_f1 = (
         sum(per_class[label]["f1"] * per_class[label]["support"] for label in labels) / total
         if total
         else 0.0
     )
-    per_class_recall = {
-        label: per_class[label]["recall"]
-        for label in labels
-    }
+    per_class_recall = {label: per_class[label]["recall"] for label in labels}
     return {
         "n": total,
         "accuracy": accuracy,
@@ -505,9 +642,15 @@ def _precision_recall_f1(
     y_true: Sequence[str],
     y_pred: Sequence[str],
 ) -> Mapping[str, float]:
-    tp = sum(1 for gold, pred in zip(y_true, y_pred, strict=True) if gold == label and pred == label)
-    fp = sum(1 for gold, pred in zip(y_true, y_pred, strict=True) if gold != label and pred == label)
-    fn = sum(1 for gold, pred in zip(y_true, y_pred, strict=True) if gold == label and pred != label)
+    tp = sum(
+        1 for gold, pred in zip(y_true, y_pred, strict=True) if gold == label and pred == label
+    )
+    fp = sum(
+        1 for gold, pred in zip(y_true, y_pred, strict=True) if gold != label and pred == label
+    )
+    fn = sum(
+        1 for gold, pred in zip(y_true, y_pred, strict=True) if gold == label and pred != label
+    )
     support = sum(1 for gold in y_true if gold == label)
     precision = tp / (tp + fp) if tp + fp else 0.0
     recall = tp / (tp + fn) if tp + fn else 0.0
@@ -539,9 +682,7 @@ def _xai_pattern_summary(records: Sequence[Mapping[str, Any]]) -> Mapping[str, A
         "context_misleading": [
             item for item in with_xai if item["correct"] is False and item["context_memory"] >= 0.1
         ],
-        "low_confidence_ambiguous": [
-            item for item in with_xai if item["confidence"] < 0.45
-        ],
+        "low_confidence_ambiguous": [item for item in with_xai if item["confidence"] < 0.45],
         "rare_class_unstable": [
             item
             for item in with_xai

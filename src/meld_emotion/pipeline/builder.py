@@ -38,6 +38,7 @@ from meld_emotion.config.schema import (
     MeldConfig,
     MemoryCacheConfig,
     MfccConfig,
+    MlpConfig,
     ModalityAblationConfig,
     ModelConfig,
     NearestCentroidConfig,
@@ -123,6 +124,7 @@ from meld_emotion.models.baselines import (
     NearestCentroidEstimator,
     RandomEstimator,
 )
+from meld_emotion.models.mlp_estimator import MlpEstimator
 from meld_emotion.models.sklearn_estimators import (
     KnnEstimator,
     LogisticRegressionEstimator,
@@ -314,6 +316,22 @@ def build_estimator_factory(config: EstimatorConfig) -> Callable[[int], Estimato
             subsample=config.subsample,
             colsample_bytree=config.colsample_bytree,
             seed=config.seed,
+        )
+    if isinstance(config, MlpConfig):
+        return lambda n: MlpEstimator(
+            n_classes=n,
+            hidden_dim=config.hidden_dim,
+            dropout=config.dropout,
+            learning_rate=config.learning_rate,
+            weight_decay=config.weight_decay,
+            batch_size=config.batch_size,
+            max_epochs=config.max_epochs,
+            early_stopping_patience=config.early_stopping_patience,
+            validation_split=config.validation_split,
+            class_weight=config.class_weight,
+            class_weights=config.class_weights,
+            random_seed=config.random_seed,
+            device=config.device,
         )
     raise ValueError(f"알 수 없는 학습기 설정: {type(config).__name__}")
 

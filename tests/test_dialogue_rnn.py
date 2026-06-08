@@ -131,6 +131,8 @@ assert checkpoint["epoch"] >= 1
 assert checkpoint["score_name"] == "weighted_f1"
 assert checkpoint["score_split"] == "train"
 assert "model_state_dict" in checkpoint
+assert "false_positive_counts" in checkpoint
+assert "gate_stats" in checkpoint
 assert checkpoint["config"]["training"]["best_checkpoint_path"] == str(checkpoint_path)
 
 from meld_emotion.core.types import Split
@@ -210,26 +212,56 @@ bundle = FeatureBundle(
 )
 config = DialogueRnnConfig(
     modality_encoder=ModalityEncoderSettings(proj_dim=4, hidden_dim=5, dropout=0.0),
-    fusion=FusionSettings(fusion_dim=6, dropout=0.0),
+    fusion=FusionSettings(fusion_dim=6, dropout=0.0, gate_entropy_weight=0.01),
     dialogue_context=DialogueContextSettings(hidden_dim=7, dropout=0.0),
     memory_attention=MemoryAttentionSettings(attn_dim=7),
-    classifier=ClassifierHeadSettings(hidden_dim=8, dropout=0.0),
+    classifier=ClassifierHeadSettings(
+        classifier_head_type="gated_residual",
+        hidden_dim=8,
+        dropout=0.0,
+        aux_text_loss_weight=0.1,
+        aux_audio_loss_weight=0.1,
+        aux_video_loss_weight=0.1,
+    ),
     training=DialogueTrainingSettings(
         max_epochs=1,
         batch_size=2,
         validation_fraction=0.0,
         modality_dropout=0.0,
+        text_dropout=0.1,
         seed=0,
     ),
 )
 classifier = TorchDialogueEmotionClassifier(config)
 classifier.fit(bundle, np.array([0, 1, 2, 3], dtype=np.int64))
+assert classifier.last_gate_stats["gate_entropy_mean"] >= 0.0
 arrays = classifier.xai_arrays(bundle)
 assert arrays.text_x.shape == (2, 2, 3, 2)
 assert arrays.audio_x.shape == (2, 2, 3, 2)
 assert arrays.video_x.shape == (2, 2, 3, 2)
 proba = classifier.predict_proba(bundle)
 assert proba.shape == (4, 7)
+batch = classifier.xai_tensor_batch(arrays, (0,))
+assert str(batch["text_x"].dtype) == "torch.float32"
+assert str(batch["speaker_id"].dtype) == "torch.int64"
+output = classifier.xai_model()(
+    batch["text_x"],
+    batch["audio_x"],
+    batch["video_x"],
+    batch["speaker_id"],
+    batch["utterance_mask"],
+    batch["text_mask"],
+    batch["audio_mask"],
+    batch["video_mask"],
+    batch["modality_mask"],
+)
+assert output["aux_text_logits"].shape[-1] == 7
+assert output["aux_audio_logits"].shape[-1] == 7
+assert output["aux_video_logits"].shape[-1] == 7
+assert output["alpha_context"].min() >= 0.0
+assert output["alpha_context"].max() <= 1.0
+assert output["alpha_memory"].min() >= 0.0
+assert output["alpha_memory"].max() <= 1.0
 """
     )
 

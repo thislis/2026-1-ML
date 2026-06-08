@@ -41,6 +41,7 @@ class MetricResult:
     name: str
     value: float
     per_class: Mapping[Emotion, float] | None = None
+    details: Mapping[str, float] | None = None
 
 
 @dataclass(frozen=True, eq=False)

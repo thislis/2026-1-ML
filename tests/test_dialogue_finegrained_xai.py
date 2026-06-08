@@ -97,3 +97,15 @@ def test_dialogue_finegrained_xai_outputs_serializable_result() -> None:
     assert item.utterances
     assert set(item.classifier_blocks) == {"fused", "context", "memory"}
     assert item.text_dimension_attribution or item.audio_dimension_attribution
+
+
+def test_dialogue_finegrained_xai_rejects_pooled_feature_bundle(train_bundle, y_train) -> None:
+    pytest.importorskip("torch")
+    classifier = TorchDialogueEmotionClassifier(DialogueRnnConfig())
+
+    with pytest.raises(ValueError, match="requires sequence feature matrices"):
+        DialogueFineGrainedXaiExplainer(n_steps=2, top_k=2, max_targets=1).explain(
+            classifier,
+            train_bundle,
+            y_train,
+        )

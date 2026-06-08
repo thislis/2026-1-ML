@@ -65,3 +65,6 @@ Thumbs.db
 MELD.Raw.tar.gz
 MELD.Raw/
 MELD.Features.Models/
+temp_files/
+output_legacy/
+configs/test/

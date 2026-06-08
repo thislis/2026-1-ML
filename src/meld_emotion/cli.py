@@ -128,7 +128,9 @@ def _cmd_infer(
         dashboard_path.write_text(dashboard_to_json(result), encoding="utf-8")
         logger.info("inference XAI dashboard 저장 완료: path=%s", dashboard_path)
     print(result_to_json(result) if json_output else format_inference_result(result))
-    logger.info("단일 입력 추론 완료: label=%s probability=%.6f", result.label.value, result.probability)
+    logger.info(
+        "단일 입력 추론 완료: label=%s probability=%.6f", result.label.value, result.probability
+    )
     return 0
 
 
@@ -140,11 +142,13 @@ def _cmd_infer_batch(
     predictions_path: str,
     summary_path: str,
     report_path: str,
+    manifest_path: str | None,
     suite_path: str,
     xai_steps: int,
     xai_top_k: int,
     resume: bool,
     limit: int | None,
+    duplicate_uid_policy: str,
     log_level: str,
     log_file: str | None,
 ) -> int:
@@ -165,15 +169,18 @@ def _cmd_infer_batch(
         predictions_path=predictions_path,
         summary_path=summary_path,
         report_path=report_path,
+        manifest_path=manifest_path,
         suite_path=suite_path,
         xai_steps=xai_steps,
         xai_top_k=xai_top_k,
         resume=resume,
         limit=limit,
+        duplicate_uid_policy=duplicate_uid_policy,
     )
     print(f"predictions: {result.paths.predictions}")
     print(f"summary: {result.paths.summary}")
     print(f"report: {result.paths.report}")
+    print(f"manifest: {result.paths.manifest}")
     logger.info("batch inference 완료: records=%s", result.summary.get("n_records"))
     return 0
 
@@ -268,6 +275,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="통합 분석 Markdown 리포트 경로",
     )
     batch_parser.add_argument(
+        "--manifest",
+        default=None,
+        help="평가 UID manifest JSON 출력 경로(기본: predictions 옆 eval_manifest.json)",
+    )
+    batch_parser.add_argument(
         "--suite",
         default="outputs/all_model_w_all_features.json",
         help="SVM/dialogue_rnn 비교 기준 suite JSON 경로",
@@ -294,6 +306,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="스모크 테스트용 최대 샘플 수",
+    )
+    batch_parser.add_argument(
+        "--duplicate-uid-policy",
+        choices=("fail_fast", "drop_all_rows_with_duplicated_uid"),
+        default="fail_fast",
+        help="JSONL 중복 uid 처리 정책",
     )
     _add_logging_args(batch_parser)
 
@@ -342,11 +360,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.predictions,
             args.summary,
             args.report,
+            args.manifest,
             args.suite,
             args.xai_steps,
             args.xai_top_k,
             args.resume,
             args.limit,
+            args.duplicate_uid_policy,
             args.log_level,
             args.log_file,
         )

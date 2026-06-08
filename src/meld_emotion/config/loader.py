@@ -24,6 +24,7 @@ from meld_emotion.config.schema import (
     MODEL_CONFIGS,
     REPORTER_CONFIGS,
     CacheConfig,
+    CalibrationSettings,
     ClassifierHeadSettings,
     CombinerConfig,
     DatasetConfig,
@@ -37,8 +38,12 @@ from meld_emotion.config.schema import (
     ExplainerConfig,
     ExtractorConfig,
     FusionSettings,
+    HardNegativeMiningSettings,
+    LogitAdjustmentSettings,
+    LossSettings,
     MediaConfig,
     MemoryAttentionSettings,
+    MlpConfig,
     ModalityEncoderSettings,
     ModelConfig,
     ReporterConfig,
@@ -68,6 +73,8 @@ def _extractor(data: Mapping[str, Any]) -> ExtractorConfig:
 
 def _estimator(data: Mapping[str, Any]) -> EstimatorConfig:
     name, rest = _pop_type(data)
+    if name == MlpConfig.type and "class_weights" in rest:
+        rest["class_weights"] = tuple(float(v) for v in rest["class_weights"])
     return ESTIMATOR_CONFIGS.create(name, **rest)
 
 
@@ -97,6 +104,27 @@ def _model(data: Mapping[str, Any]) -> ModelConfig:
             rest["classifier"] = ClassifierHeadSettings(**rest["classifier"])
         if "training" in rest:
             rest["training"] = DialogueTrainingSettings(**rest["training"])
+        if "loss" in rest:
+            loss_data = dict(rest["loss"])
+            if "logit_adjustment" in loss_data:
+                loss_data["logit_adjustment"] = LogitAdjustmentSettings(
+                    **loss_data["logit_adjustment"]
+                )
+            if "hard_negative_mining" in loss_data:
+                hard_negative_data = dict(loss_data["hard_negative_mining"])
+                if "target_classes" in hard_negative_data:
+                    hard_negative_data["target_classes"] = tuple(
+                        int(v) for v in hard_negative_data["target_classes"]
+                    )
+                loss_data["hard_negative_mining"] = HardNegativeMiningSettings(**hard_negative_data)
+            rest["loss"] = LossSettings(**loss_data)
+        if "calibration" in rest:
+            calibration_data = dict(rest["calibration"])
+            if "rare_classes" in calibration_data:
+                calibration_data["rare_classes"] = tuple(
+                    int(v) for v in calibration_data["rare_classes"]
+                )
+            rest["calibration"] = CalibrationSettings(**calibration_data)
     return MODEL_CONFIGS.create(name, **rest)
 
 

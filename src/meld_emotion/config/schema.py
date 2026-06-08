@@ -302,6 +302,23 @@ class XGBoostConfig(EstimatorConfig):
     seed: int = 0
 
 
+@dataclass(frozen=True)
+class MlpConfig(EstimatorConfig):
+    type: ClassVar[str] = "mlp"
+    hidden_dim: int = 128
+    dropout: float = 0.2
+    learning_rate: float = 0.001
+    weight_decay: float = 0.0
+    batch_size: int = 32
+    max_epochs: int = 50
+    early_stopping_patience: int = 5
+    validation_split: float = 0.1
+    class_weight: str = "none"
+    class_weights: tuple[float, ...] = ()
+    random_seed: int = 0
+    device: str = "cpu"
+
+
 for _est in (
     MajorityConfig,
     RandomEstimatorConfig,
@@ -312,6 +329,7 @@ for _est in (
     RandomForestConfig,
     KnnConfig,
     XGBoostConfig,
+    MlpConfig,
 ):
     ESTIMATOR_CONFIGS.add(_est.type, _est)
 
@@ -380,10 +398,14 @@ class FusionSettings:
     dropout: float = 0.3
     use_gated_fusion: bool = True
     use_interaction_features: bool = True
+    use_interaction: bool = True
+    gate_entropy_weight: float = 0.0
 
 
 @dataclass(frozen=True)
 class DialogueContextSettings:
+    use_context: bool = True
+    use_speaker: bool = True
     speaker_emb_dim: int = 32
     hidden_dim: int = 256
     num_layers: int = 1
@@ -392,6 +414,7 @@ class DialogueContextSettings:
 
 @dataclass(frozen=True)
 class MemoryAttentionSettings:
+    use_memory: bool = True
     enabled: bool = True
     hidden_dim: int = 256
     attn_dim: int = 256
@@ -403,6 +426,14 @@ class MemoryAttentionSettings:
 
 @dataclass(frozen=True)
 class ClassifierHeadSettings:
+    classifier_head_type: str = "concat"
+    use_context: bool = True
+    use_memory: bool = True
+    gate_hidden_dim: int = 128
+    gate_dropout: float = 0.1
+    aux_text_loss_weight: float = 0.0
+    aux_audio_loss_weight: float = 0.0
+    aux_video_loss_weight: float = 0.0
     hidden_dim: int = 256
     dropout: float = 0.3
 
@@ -417,9 +448,46 @@ class DialogueTrainingSettings:
     early_stopping_patience: int = 8
     validation_fraction: float = 0.1
     modality_dropout: float = 0.2
+    text_dropout: float = 0.0
     seed: int = 0
     device: str = "cpu"
     best_checkpoint_path: str | None = None
+
+
+@dataclass(frozen=True)
+class LogitAdjustmentSettings:
+    enabled: bool = False
+    tau: float = 1.0
+
+
+@dataclass(frozen=True)
+class HardNegativeMiningSettings:
+    enabled: bool = False
+    weight: float = 1.0
+    target_classes: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True)
+class LossSettings:
+    type: str = "cross_entropy"
+    gamma: float = 2.0
+    class_balanced_beta: float = 0.999
+    label_smoothing: float = 0.0
+    logit_adjustment: LogitAdjustmentSettings = field(default_factory=LogitAdjustmentSettings)
+    hard_negative_mining: HardNegativeMiningSettings = field(
+        default_factory=HardNegativeMiningSettings
+    )
+
+
+@dataclass(frozen=True)
+class CalibrationSettings:
+    enabled: bool = False
+    temperature_scaling: bool = False
+    threshold_tuning: bool = False
+    rare_class_margin_enabled: bool = False
+    rare_classes: tuple[int, ...] = ()
+    rare_class_threshold: float = 0.0
+    rare_class_margin: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -427,14 +495,14 @@ class DialogueRnnConfig(ModelConfig):
     type: ClassVar[str] = "dialogue_rnn"
     num_classes: int = 7
     rnn_type: str = "gru"
-    modality_encoder: ModalityEncoderSettings = field(
-        default_factory=ModalityEncoderSettings
-    )
+    modality_encoder: ModalityEncoderSettings = field(default_factory=ModalityEncoderSettings)
     fusion: FusionSettings = field(default_factory=FusionSettings)
     dialogue_context: DialogueContextSettings = field(default_factory=DialogueContextSettings)
     memory_attention: MemoryAttentionSettings = field(default_factory=MemoryAttentionSettings)
     classifier: ClassifierHeadSettings = field(default_factory=ClassifierHeadSettings)
     training: DialogueTrainingSettings = field(default_factory=DialogueTrainingSettings)
+    loss: LossSettings = field(default_factory=LossSettings)
+    calibration: CalibrationSettings = field(default_factory=CalibrationSettings)
 
 
 MODEL_CONFIGS.add(EarlyFusionConfig.type, EarlyFusionConfig)

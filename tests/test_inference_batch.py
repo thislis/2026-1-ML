@@ -9,9 +9,11 @@ import pytest
 
 from meld_emotion.cli import build_parser
 from meld_emotion.inference_batch import (
+    DUPLICATE_UID_DROP_ALL,
     _load_test_samples,
     analyze_batch_records,
     load_prediction_records,
+    load_prediction_records_with_manifest,
     render_markdown_report,
 )
 
@@ -175,6 +177,183 @@ def test_prediction_jsonl_loader_skips_interrupted_rows(tmp_path: Path) -> None:
     assert loaded[0]["uid"] == "test:1_0"
 
 
+def test_prediction_jsonl_unique_uids_creates_manifest_counts(tmp_path: Path) -> None:
+    path = tmp_path / "predictions.jsonl"
+    records = [
+        _record(
+            "test:1_0",
+            gold="joy",
+            pred="joy",
+            confidence=0.9,
+            text_share=0.7,
+            audio_share=0.1,
+            video_share=0.1,
+            correct=True,
+        ),
+        _record(
+            "test:1_1",
+            gold="sadness",
+            pred="neutral",
+            confidence=0.6,
+            text_share=0.4,
+            audio_share=0.3,
+            video_share=0.2,
+            correct=False,
+        ),
+    ]
+    path.write_text(
+        "\n".join(json.dumps(record, ensure_ascii=False) for record in records),
+        encoding="utf-8",
+    )
+
+    loaded, manifest = load_prediction_records_with_manifest(path)
+
+    assert len(loaded) == 2
+    assert manifest.to_dict() == {
+        "raw_lines": 2,
+        "valid_json_lines": 2,
+        "invalid_rows_skipped": 0,
+        "duplicate_uid_count": 0,
+        "duplicate_rows": [],
+        "evaluated_records": 2,
+        "evaluated_uids": ["test:1_0", "test:1_1"],
+        "dropped_uid_policy": "fail_fast",
+    }
+
+
+def test_prediction_jsonl_duplicate_uid_default_fails_fast(tmp_path: Path) -> None:
+    path = tmp_path / "predictions.jsonl"
+    first = _record(
+        "test:1_0",
+        gold="joy",
+        pred="joy",
+        confidence=0.9,
+        text_share=0.7,
+        audio_share=0.1,
+        video_share=0.1,
+        correct=True,
+    )
+    second = dict(first)
+    second["pred"] = "neutral"
+    path.write_text(
+        "\n".join(json.dumps(record, ensure_ascii=False) for record in (first, second)),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=r"duplicate uid.*drop_all_rows_with_duplicated_uid"):
+        load_prediction_records_with_manifest(path)
+
+
+def test_prediction_jsonl_duplicate_policy_drops_all_duplicate_uid_rows(tmp_path: Path) -> None:
+    path = tmp_path / "predictions.jsonl"
+    duplicate = _record(
+        "test:1_0",
+        gold="joy",
+        pred="joy",
+        confidence=0.9,
+        text_share=0.7,
+        audio_share=0.1,
+        video_share=0.1,
+        correct=True,
+    )
+    keep = _record(
+        "test:1_1",
+        gold="sadness",
+        pred="sadness",
+        confidence=0.8,
+        text_share=0.3,
+        audio_share=0.4,
+        video_share=0.2,
+        correct=True,
+    )
+    path.write_text(
+        "\n".join(
+            json.dumps(record, ensure_ascii=False) for record in (duplicate, keep, dict(duplicate))
+        ),
+        encoding="utf-8",
+    )
+
+    loaded, manifest = load_prediction_records_with_manifest(
+        path,
+        duplicate_uid_policy=DUPLICATE_UID_DROP_ALL,
+    )
+
+    assert [record["uid"] for record in loaded] == ["test:1_1"]
+    assert manifest.duplicate_uid_count == 1
+    assert manifest.duplicate_rows == ({"uid": "test:1_0", "count": 2, "line_numbers": (1, 3)},)
+    assert manifest.evaluated_records == 1
+    assert manifest.evaluated_uids == ("test:1_1",)
+    assert manifest.dropped_uid_policy == DUPLICATE_UID_DROP_ALL
+
+
+def test_prediction_jsonl_invalid_rows_do_not_enter_manifest(tmp_path: Path) -> None:
+    path = tmp_path / "predictions.jsonl"
+    valid = _record(
+        "test:1_0",
+        gold="joy",
+        pred="joy",
+        confidence=0.9,
+        text_share=0.7,
+        audio_share=0.1,
+        video_share=0.1,
+        correct=True,
+    )
+    missing_uid = dict(valid)
+    del missing_uid["uid"]
+    path.write_text(
+        "\n".join(
+            (
+                json.dumps(valid, ensure_ascii=False),
+                '{"uid": "test:broken", "text": "unterminated',
+                json.dumps(missing_uid, ensure_ascii=False),
+                "[]",
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    loaded, manifest = load_prediction_records_with_manifest(path)
+
+    assert [record["uid"] for record in loaded] == ["test:1_0"]
+    assert manifest.raw_lines == 4
+    assert manifest.valid_json_lines == 3
+    assert manifest.invalid_rows_skipped == 3
+    assert manifest.evaluated_uids == ("test:1_0",)
+
+
+def test_batch_summary_filters_to_manifest_evaluated_uids(tmp_path: Path) -> None:
+    kept = _record(
+        "test:1_0",
+        gold="joy",
+        pred="joy",
+        confidence=0.9,
+        text_share=0.7,
+        audio_share=0.1,
+        video_share=0.1,
+        correct=True,
+    )
+    excluded = _record(
+        "test:1_1",
+        gold="joy",
+        pred="neutral",
+        confidence=0.9,
+        text_share=0.7,
+        audio_share=0.1,
+        video_share=0.1,
+        correct=False,
+    )
+
+    summary = analyze_batch_records(
+        [kept, excluded],
+        suite_path=tmp_path / "missing_suite.json",
+        evaluated_uids=("test:1_0",),
+    )
+
+    assert summary["n_records"] == 1
+    assert summary["metrics"]["n"] == 1
+    assert summary["metrics"]["accuracy"] == pytest.approx(1.0)
+
+
 def test_infer_batch_help_parser(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as excinfo:
         build_parser().parse_args(["infer-batch", "--help"])
@@ -183,3 +362,4 @@ def test_infer_batch_help_parser(capsys: pytest.CaptureFixture[str]) -> None:
     assert "--csv" in help_text
     assert "--mp4-dir" in help_text
     assert "--resume" in help_text
+    assert "--duplicate-uid-policy" in help_text

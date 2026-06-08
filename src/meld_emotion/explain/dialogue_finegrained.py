@@ -79,7 +79,10 @@ class DialogueFineGrainedXaiExplainer:
         self, model: Classifier, bundle: FeatureBundle, y_true: IntArray
     ) -> ExplanationReport:
         if not isinstance(model, TorchDialogueEmotionClassifier):
-            raise TypeError("dialogue_finegrained_xai 는 dialogue_rnn 모델에서만 사용할 수 있습니다")
+            raise TypeError(
+                "dialogue_finegrained_xai 는 dialogue_rnn 모델에서만 사용할 수 있습니다"
+            )
+        _require_sequence_features(bundle)
         ig_cls = _load_integrated_gradients()
         torch = _load_torch()
         prediction = model.predict(bundle)
@@ -258,7 +261,9 @@ class DialogueFineGrainedXaiExplainer:
             batch["video_mask"],
             mask,
         )
-        return target_logit - float(output["logits"].detach().cpu().numpy()[0, slot, target_class_idx])
+        return target_logit - float(
+            output["logits"].detach().cpu().numpy()[0, slot, target_class_idx]
+        )
 
     def _block_deltas(
         self,
@@ -333,7 +338,11 @@ class DialogueFineGrainedXaiExplainer:
             for index, score in enumerate(scores.tolist()):
                 if score <= 0.0:
                     continue
-                unit = units[index] if index < len(units) else FeatureUnit(label=f"unit_{index}", index=index)
+                unit = (
+                    units[index]
+                    if index < len(units)
+                    else FeatureUnit(label=f"unit_{index}", index=index)
+                )
                 scored.append(
                     UnitAttribution(
                         label=f"{bundle.uids[flat]}:{unit.label}",
@@ -371,6 +380,21 @@ def _available(batch: Mapping[str, Any], slot: int, modality_index: int) -> bool
 def _first_sequence(bundle: FeatureBundle, modality: Modality) -> SequenceFeatureMatrix | None:
     matrices = bundle.sequence_by_modality(modality)
     return matrices[0] if matrices else None
+
+
+def _require_sequence_features(bundle: FeatureBundle) -> None:
+    missing = [
+        modality.value
+        for modality in (Modality.TEXT, Modality.AUDIO, Modality.VIDEO)
+        if not bundle.sequence_by_modality(modality)
+    ]
+    if missing:
+        joined = ", ".join(missing)
+        raise ValueError(
+            "dialogue_finegrained_xai requires sequence feature matrices for every "
+            f"modality; missing: {joined}. Use text_token_embeddings, "
+            "audio_wav2vec2_xlsr_sequence, and video_frame_embeddings for sequence XAI."
+        )
 
 
 def _units_for(matrix: SequenceFeatureMatrix | None, flat_idx: int) -> tuple[FeatureUnit, ...]:

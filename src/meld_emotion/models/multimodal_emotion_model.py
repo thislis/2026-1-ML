@@ -42,6 +42,11 @@ class MultimodalEmotionModel(nn.Module):
         max_relative_distance: int = 32,
         classifier_hidden_dim: int = 256,
         classifier_dropout: float = 0.3,
+        classifier_head_type: str = "concat",
+        classifier_use_context: bool = True,
+        classifier_use_memory: bool = True,
+        classifier_gate_hidden_dim: int = 128,
+        classifier_gate_dropout: float = 0.1,
     ) -> None:
         super().__init__()
         self.text_encoder = AttentiveRnnEncoder(
@@ -97,7 +102,15 @@ class MultimodalEmotionModel(nn.Module):
             hidden_dim=classifier_hidden_dim,
             num_classes=num_classes,
             dropout=classifier_dropout,
+            classifier_head_type=classifier_head_type,
+            use_context=classifier_use_context,
+            use_memory=classifier_use_memory,
+            gate_hidden_dim=classifier_gate_hidden_dim,
+            gate_dropout=classifier_gate_dropout,
         )
+        self.text_aux_head = nn.Linear(modality_hidden_dim, num_classes)
+        self.audio_aux_head = nn.Linear(modality_hidden_dim, num_classes)
+        self.video_aux_head = nn.Linear(modality_hidden_dim, num_classes)
 
     def forward(
         self,
@@ -129,7 +142,9 @@ class MultimodalEmotionModel(nn.Module):
         classifier_context = (
             torch.zeros_like(context_h) if ablate_classifier_block == "context" else context_h
         )
-        classifier_memory = torch.zeros_like(memory) if ablate_classifier_block == "memory" else memory
+        classifier_memory = (
+            torch.zeros_like(memory) if ablate_classifier_block == "memory" else memory
+        )
         logits = self.classifier(classifier_fused, classifier_context, classifier_memory)
         logits = logits * utterance_mask.to(dtype=logits.dtype).unsqueeze(-1)
 
@@ -140,7 +155,17 @@ class MultimodalEmotionModel(nn.Module):
             "audio_attention": audio_attn,
             "video_attention": video_attn,
             "memory_attention": memory_attn,
+            "aux_text_logits": self.text_aux_head(u_t)
+            * utterance_mask.to(dtype=u_t.dtype).unsqueeze(-1),
+            "aux_audio_logits": self.audio_aux_head(u_a)
+            * utterance_mask.to(dtype=u_a.dtype).unsqueeze(-1),
+            "aux_video_logits": self.video_aux_head(u_v)
+            * utterance_mask.to(dtype=u_v.dtype).unsqueeze(-1),
         }
+        if self.classifier.last_alpha_context is not None:
+            output["alpha_context"] = self.classifier.last_alpha_context
+        if self.classifier.last_alpha_memory is not None:
+            output["alpha_memory"] = self.classifier.last_alpha_memory
         if return_xai:
             output.update(
                 {
