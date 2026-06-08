@@ -119,6 +119,21 @@ MELD 팀이 제공한 baseline pickle 을 쓰는 `MeldPrecomputedFeatureExtracto
 단위로 준비해 각 extractor 에 전달하고, 동일 feature signature 의 suite 실험끼리는 in-memory
 feature cache 를 공유한다.
 
+## Fine-grained sequence extractor
+
+단어/token, 오디오 구간, 비디오 프레임 단위 XAI 는 pooled utterance embedding 이 아니라
+`SequenceFeatureMatrix(values=[n,L,D])` 를 내는 추출기를 사용한다. v1 구현은 다음 세 가지다.
+
+- `TextTokenEmbeddingExtractor`(`type: text_token_embeddings`) — Hugging Face tokenizer/model 로
+  token embedding 과 character span 을 보존한다.
+- `Wav2Vec2XlsrAudioSequenceExtractor`(`type: audio_wav2vec2_xlsr_sequence`) — Wav2Vec2
+  `last_hidden_state` 를 시간 step별 embedding 으로 보존한다.
+- `VideoFrameEmbeddingExtractor`(`type: video_frame_embeddings`) — sampled frame 마다 CLIP vision
+  embedding 을 계산해 frame-level importance 를 볼 수 있게 한다.
+
+이 추출기들은 호환을 위해 pooled `FeatureMatrix` 도 함께 반환한다. 기존 early/late fusion 은
+pooled matrix 를 쓰고, `dialogue_rnn` 은 sequence matrix 가 있으면 `[B,N,L,D]` 입력을 사용한다.
+
 ## 새 특징 추출기 추가하기
 
 1. [base.py](base.py) 의 `BaseFeatureExtractor` 를 상속하고 `modality`, `kind`(`ClassVar`),

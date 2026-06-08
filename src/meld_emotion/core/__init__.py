@@ -12,6 +12,8 @@ from meld_emotion.core.features import (
     ColumnSpec,
     FeatureBundle,
     FeatureMatrix,
+    FeatureUnit,
+    SequenceFeatureMatrix,
     StackedFeatures,
 )
 from meld_emotion.core.protocols import (
@@ -25,18 +27,23 @@ from meld_emotion.core.protocols import (
     LabelEncoder,
     Metric,
     Reporter,
+    SequenceFeatureExtractor,
 )
 from meld_emotion.core.results import (
     ConfusionMatrixResult,
     CounterfactualResult,
+    DialogueXaiResult,
     EvaluationReport,
     ExperimentResult,
     ExplanationReport,
     FeatureContribution,
     MetricResult,
     ModalityContribution,
+    ModalityXaiSummary,
     PredictionSet,
     RobustnessReport,
+    UnitAttribution,
+    UtteranceAttribution,
 )
 from meld_emotion.core.status import (
     ComponentStatus,
@@ -76,6 +83,8 @@ __all__ = [
     "RawSample",
     # features
     "FeatureMatrix",
+    "SequenceFeatureMatrix",
+    "FeatureUnit",
     "FeatureBundle",
     "StackedFeatures",
     "ColumnSpec",
@@ -88,12 +97,17 @@ __all__ = [
     "FeatureContribution",
     "ModalityContribution",
     "CounterfactualResult",
+    "UnitAttribution",
+    "UtteranceAttribution",
+    "ModalityXaiSummary",
+    "DialogueXaiResult",
     "ExplanationReport",
     "ExperimentResult",
     # protocols
     "LabelEncoder",
     "DatasetSource",
     "FeatureExtractor",
+    "SequenceFeatureExtractor",
     "Estimator",
     "Classifier",
     "Metric",

@@ -12,7 +12,13 @@ import pytest
 from meld_emotion.cli import build_parser
 from meld_emotion.core.data import AudioInput, RawSample, VideoInput
 from meld_emotion.core.features import FeatureBundle, FeatureMatrix
-from meld_emotion.core.results import PredictionSet
+from meld_emotion.core.results import (
+    DialogueXaiResult,
+    ModalityXaiSummary,
+    PredictionSet,
+    UnitAttribution,
+    UtteranceAttribution,
+)
 from meld_emotion.core.types import (
     EMOTION_ORDER,
     Emotion,
@@ -21,7 +27,13 @@ from meld_emotion.core.types import (
     IntArray,
     Modality,
 )
-from meld_emotion.inference import result_to_json, run_inference
+from meld_emotion.inference import (
+    InferenceResult,
+    dashboard_to_json,
+    format_inference_result,
+    result_to_json,
+    run_inference,
+)
 
 
 class _FixedExtractor:
@@ -117,6 +129,46 @@ def test_run_inference_with_injected_components(tmp_path: Path) -> None:
     assert '"label": "joy"' in result_to_json(result)
 
 
+def test_inference_result_can_include_xai() -> None:
+    xai = DialogueXaiResult(
+        uid="infer:sample.mp4",
+        dialogue_id=0,
+        utterance_id=0,
+        speaker="unknown",
+        pred_class=Emotion.JOY,
+        pred_proba=0.6,
+        target_class=Emotion.JOY,
+        target_logit=1.7,
+        modality=(
+            ModalityXaiSummary(Modality.TEXT, True, 0.7, 0.8, 1.0),
+            ModalityXaiSummary(Modality.AUDIO, True, 0.2, 0.1, 0.2),
+            ModalityXaiSummary(Modality.VIDEO, True, 0.1, 0.1, 0.1),
+        ),
+        utterances=(UtteranceAttribution("infer:sample.mp4", 0, 0, "unknown", 1.0, 1.0, 1.0),),
+        classifier_blocks={"fused": 0.3, "context": 0.1, "memory": 0.0},
+        top_text_units=(UnitAttribution("infer:sample.mp4:happy", 0.9, 1),),
+        top_audio_units=(UnitAttribution("infer:sample.mp4:0.00-0.10s", 0.2, 0, 0.0, 0.1),),
+        top_video_units=(UnitAttribution("infer:sample.mp4:frame_0", 0.1, 0),),
+    )
+    result = InferenceResult(
+        label=Emotion.JOY,
+        probability=0.6,
+        scores={Emotion.JOY: 0.6, Emotion.NEUTRAL: 0.4},
+        top_k=((Emotion.JOY, 0.6),),
+        checkpoint="best.pt",
+        mp4_path="sample.mp4",
+        xai=(xai,),
+    )
+    text = format_inference_result(result)
+    assert "xai:" in text
+    assert "mod=text:0.80" in text
+    payload = result_to_json(result)
+    assert '"xai"' in payload
+    dashboard = dashboard_to_json(result)
+    assert '"finegrained_xai"' in dashboard
+    assert '"modality_panel"' in dashboard
+
+
 def test_run_inference_validates_inputs(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="MP4"):
         run_inference(
@@ -149,4 +201,6 @@ def test_infer_help_parser(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as excinfo:
         build_parser().parse_args(["infer", "--help"])
     assert excinfo.value.code == 0
-    assert "MP4" in capsys.readouterr().out
+    help_text = capsys.readouterr().out
+    assert "MP4" in help_text
+    assert "--xai" in help_text

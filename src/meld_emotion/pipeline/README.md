@@ -12,6 +12,8 @@
   `FeatureBundle` 로 변환하고 모달리티 가용성 마스크를 구성한다. 오디오/비디오 추출기가 있고
   source path 만 있는 샘플은 특징 추출 전 `MediaLoader` 로 필요한 배열을 lazy-load 한다.
   각 행의 `dialogue_id`/`utterance_id`/`speaker` 는 `FeatureBundle.utterances` 에 보존된다.
+  `SequenceFeatureExtractor` 는 2D pooled matrix 와 함께 `FeatureBundle.sequence_matrices` 에
+  `[n,L,D]` sequence feature 를 추가한다.
 - `runner.py` — `ExperimentRunner`: 한 실험을 끝까지 실행하고 `ExperimentResult` 반환.
 - `builder.py` — **구성 루트**. `build_experiment(config) -> ExperimentRunner`. 유일하게 모든
   구체 구현을 import 하여 설정→객체로 연결한다.
@@ -102,12 +104,13 @@ experiments:                                 # base 위에 차이만
 - 특징 캐시 키는 `"{extractor.name}|{split}"` 이며, media chunk 경로에서는 split/uid fingerprint
   기반 bundle cache 도 함께 사용한다.
 - `dialogue_rnn` 모델은 `FeatureBundle.utterances` 를 기준으로 발화별 특징 행을 dialogue batch
-  `[B,N,1,D]` 로 재구성한다. 기존 추출기는 발화별 single vector 를 내므로 sequence length 는
-  1이며, padding 발화는 loss/evaluation 에서 제외된다.
+  로 재구성한다. 기존 pooled 추출기는 `[B,N,1,D]`, sequence 추출기는 `[B,N,L,D]` 로 들어가며,
+  padding 발화는 loss/evaluation 에서 제외된다.
 - `ExperimentRunner` metadata 는 raw 샘플 수(`n_train_raw`/`n_test_raw`)와 media error policy
   적용 후 실제 feature bundle 샘플 수(`n_train`/`n_test`)를 함께 기록한다.
 - `meld-emotion run` 과 `meld-emotion compare` 는 기본 `INFO` 로그를 stderr 로 출력하며,
   `--log-level DEBUG` 와 `--log-file <path>` 로 상세 로그와 파일 로그를 켤 수 있다.
 - `meld-emotion infer --mp4 <path> --text <text>` 는 `outputs/best_model.pt` 를 기본 checkpoint 로
-  사용해 단일 발화 감정을 출력한다. 같은 기능은 루트의 `infer_emotion.py` wrapper 로도 실행할 수
-  있다.
+  사용해 단일 발화 감정을 출력한다. `--xai` 를 붙이면 sequence extractor 와
+  `dialogue_finegrained_xai` 로 단일 inference XAI 를 함께 출력하고, `--xai-dashboard <path>` 로
+  dashboard payload 를 저장한다. 같은 기능은 루트의 `infer_emotion.py` wrapper 로도 실행할 수 있다.

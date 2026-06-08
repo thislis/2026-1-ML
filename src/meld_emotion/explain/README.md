@@ -15,6 +15,9 @@
   모달리티 기여도 측정(modality-wise contribution).
 - `counterfactual.py` — `CounterfactualExplainer`: 개념 특징을 평균값으로 되돌렸을 때 예측 확률
   변화 측정(반사실 증거 제거). 원문 단어 삭제 변형은 미구현(`explain_text_deletion`).
+- `dialogue_finegrained.py` — `DialogueFineGrainedXaiExplainer`: `dialogue_rnn` target logit 에
+  Captum Integrated Gradients 를 적용하고 token/audio-span/video-frame, source utterance,
+  modality, fused/context/memory block, embedding dimension 중요도를 함께 저장한다.
 
 세 설명기 모두 현재 파이프라인에서 쓰는 특징 공간 설명 경로는 완전 구현이다. 단,
 `CounterfactualExplainer.explain_text_deletion` 은 토큰 삭제 후 특징 재추출 경로가 아직 없어
@@ -24,6 +27,10 @@
 embedding 기반 raw MELD suite 에서 weighted F1 기준 모달리티 기여도를 함께 저장한다.
 `configs/all_model_w_all_features.yaml` 도 같은 설명기를 사용하며, text/audio/video 제거에 따른
 weighted F1 하락폭을 `ComparisonReport` JSON 안의 각 실험 결과에 남긴다.
+
+Fine-grained XAI 는 `type: dialogue_finegrained_xai` 로 켠다. `max_targets` 로 비용을 제한하고,
+결과는 `ExplanationReport.dialogue_xai` 에 저장된다. 예제는
+[configs/example_finegrained_xai.yaml](../../../configs/example_finegrained_xai.yaml) 이다.
 
 ## 새 설명기 추가하기
 

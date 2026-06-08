@@ -7,6 +7,7 @@ from meld_emotion.features.text.concepts import TextConceptExtractor
 from meld_emotion.features.text.embeddinggemma import EmbeddingGemmaTextExtractor
 from meld_emotion.features.text.embeddings import SentenceEmbeddingExtractor
 from meld_emotion.features.text.tfidf import TfidfTextExtractor
+from meld_emotion.features.text.token_embeddings import TextTokenEmbeddingExtractor
 
 __all__ = [
     "BowTextExtractor",
@@ -14,4 +15,5 @@ __all__ = [
     "SentenceEmbeddingExtractor",
     "TextConceptExtractor",
     "TfidfTextExtractor",
+    "TextTokenEmbeddingExtractor",
 ]

@@ -19,6 +19,7 @@ from meld_emotion.config.schema import (
     CounterfactualConfig,
     DashboardReporterConfig,
     DatasetConfig,
+    DialogueFineGrainedXaiConfig,
     DialogueRnnConfig,
     DiskCacheConfig,
     EarlyFusionConfig,
@@ -51,12 +52,15 @@ from meld_emotion.config.schema import (
     SvmConfig,
     SyntheticConfig,
     TextConceptConfig,
+    TextTokenEmbeddingConfig,
     TfidfConfig,
     TimeSformerVideoConfig,
     VideoConceptConfig,
+    VideoFrameEmbeddingConfig,
     VideoPrismConfig,
     VisualCueConfig,
     Wav2Vec2XlsrAudioConfig,
+    Wav2Vec2XlsrAudioSequenceConfig,
     WeightedCombinerConfig,
     XGBoostConfig,
 )
@@ -79,12 +83,14 @@ from meld_emotion.evaluation.evaluator import Evaluator
 from meld_emotion.evaluation.metrics import METRIC_REGISTRY
 from meld_emotion.evaluation.robustness import RobustnessEvaluator
 from meld_emotion.explain.counterfactual import CounterfactualExplainer
+from meld_emotion.explain.dialogue_finegrained import DialogueFineGrainedXaiExplainer
 from meld_emotion.explain.modality_contribution import ModalityAblationExplainer
 from meld_emotion.explain.permutation import PermutationImportanceExplainer
 from meld_emotion.features.audio import (
     AudioConceptExtractor,
     MfccAcousticExtractor,
     Wav2Vec2XlsrAudioExtractor,
+    Wav2Vec2XlsrAudioSequenceExtractor,
 )
 from meld_emotion.features.precomputed import MeldPrecomputedFeatureExtractor
 from meld_emotion.features.text import (
@@ -92,11 +98,13 @@ from meld_emotion.features.text import (
     EmbeddingGemmaTextExtractor,
     SentenceEmbeddingExtractor,
     TextConceptExtractor,
+    TextTokenEmbeddingExtractor,
     TfidfTextExtractor,
 )
 from meld_emotion.features.video import (
     TimeSformerVideoExtractor,
     VideoConceptExtractor,
+    VideoFrameEmbeddingExtractor,
     VideoPrismVideoExtractor,
     VisualCueExtractor,
 )
@@ -186,6 +194,15 @@ def build_extractor(config: ExtractorConfig) -> FeatureExtractor:
             prompt_name=config.prompt_name,
             device=config.device,
         )
+    if isinstance(config, TextTokenEmbeddingConfig):
+        return TextTokenEmbeddingExtractor(
+            model_name=config.model_name,
+            max_tokens=config.max_tokens,
+            output_dim=config.output_dim,
+            batch_size=config.batch_size,
+            normalize=config.normalize,
+            device=config.device,
+        )
     if isinstance(config, AudioConceptConfig):
         return AudioConceptExtractor()
     if isinstance(config, MfccConfig):
@@ -198,6 +215,17 @@ def build_extractor(config: ExtractorConfig) -> FeatureExtractor:
             sampling_rate=config.sampling_rate,
             max_seconds=config.max_seconds,
             chunk_seconds=config.chunk_seconds,
+            normalize=config.normalize,
+            device=config.device,
+        )
+    if isinstance(config, Wav2Vec2XlsrAudioSequenceConfig):
+        return Wav2Vec2XlsrAudioSequenceExtractor(
+            model_name=config.model_name,
+            output_dim=config.output_dim,
+            batch_size=config.batch_size,
+            sampling_rate=config.sampling_rate,
+            max_seconds=config.max_seconds,
+            max_steps=config.max_steps,
             normalize=config.normalize,
             device=config.device,
         )
@@ -224,6 +252,16 @@ def build_extractor(config: ExtractorConfig) -> FeatureExtractor:
             frame_size=config.frame_size,
             normalize=config.normalize,
             prefer_batched_input=config.prefer_batched_input,
+        )
+    if isinstance(config, VideoFrameEmbeddingConfig):
+        return VideoFrameEmbeddingExtractor(
+            model_name=config.model_name,
+            output_dim=config.output_dim,
+            batch_size=config.batch_size,
+            num_frames=config.num_frames,
+            frame_size=config.frame_size,
+            normalize=config.normalize,
+            device=config.device,
         )
     if isinstance(config, PrecomputedMeldFeatureConfig):
         return MeldPrecomputedFeatureExtractor(
@@ -325,6 +363,14 @@ def build_explainer(config: ExplainerConfig) -> Explainer:
         return ModalityAblationExplainer(metric=build_metric(config.metric))
     if isinstance(config, CounterfactualConfig):
         return CounterfactualExplainer(top_k=config.top_k, sample_limit=config.sample_limit)
+    if isinstance(config, DialogueFineGrainedXaiConfig):
+        return DialogueFineGrainedXaiExplainer(
+            method=config.method,
+            n_steps=config.n_steps,
+            top_k=config.top_k,
+            max_targets=config.max_targets,
+            target=config.target,
+        )
     raise ValueError(f"알 수 없는 설명기 설정: {type(config).__name__}")
 
 

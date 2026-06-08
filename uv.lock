@@ -189,6 +189,22 @@ wheels = [
 ]
 
 [[package]]
+name = "captum"
+version = "0.9.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "packaging" },
+    { name = "torch" },
+    { name = "tqdm" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f7/9e/f31758e20c3d2b42b05420936b75f663e7aeae9ba63b84aee5cad1b044a3/captum-0.9.0.tar.gz", hash = "sha256:e4868e22b68224f1a5355d2b7966803c021cf9fe5d893f51f587b4002a666b54", size = 363381, upload-time = "2026-04-17T06:11:39.577Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/01/75/c99571fee171bb9d34d3e1df5fdb16d57e2c4c15339eb220e6e6e4539f1c/captum-0.9.0-py3-none-any.whl", hash = "sha256:cda38e1d42c37591d71560bb2f5813ac4cae8d8543afac45279c7efd5945997e", size = 455196, upload-time = "2026-04-17T06:11:38.229Z" },
+]
+
+[[package]]
 name = "certifi"
 version = "2026.5.20"
 source = { registry = "https://pypi.org/simple" }
@@ -1306,6 +1322,7 @@ dependencies = [
 [package.optional-dependencies]
 all = [
     { name = "av" },
+    { name = "captum" },
     { name = "flax" },
     { name = "huggingface-hub" },
     { name = "jax" },
@@ -1351,6 +1368,9 @@ video = [
     { name = "transformers" },
     { name = "videoprism" },
 ]
+xai = [
+    { name = "captum" },
+]
 xgboost = [
     { name = "xgboost" },
 ]
@@ -1358,12 +1378,13 @@ xgboost = [
 [package.metadata]
 requires-dist = [
     { name = "av", marker = "extra == 'audio'", specifier = ">=11" },
+    { name = "captum", marker = "extra == 'xai'", specifier = ">=0.7" },
     { name = "flax", marker = "extra == 'video'", specifier = ">=0.8" },
     { name = "huggingface-hub", marker = "extra == 'video'", specifier = ">=0.24" },
     { name = "jax", marker = "extra == 'video'", specifier = ">=0.4" },
     { name = "librosa", marker = "extra == 'audio'", specifier = ">=0.10" },
     { name = "mediapipe", marker = "extra == 'video'", specifier = ">=0.10" },
-    { name = "meld-emotion", extras = ["text", "audio", "video", "xgboost", "deep"], marker = "extra == 'all'" },
+    { name = "meld-emotion", extras = ["text", "audio", "video", "xgboost", "deep", "xai"], marker = "extra == 'all'" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "opencv-python", marker = "extra == 'video'", specifier = ">=4.9" },
@@ -1383,7 +1404,7 @@ requires-dist = [
     { name = "videoprism", marker = "extra == 'video'", git = "https://github.com/google-deepmind/videoprism.git" },
     { name = "xgboost", marker = "extra == 'xgboost'", specifier = ">=2.0" },
 ]
-provides-extras = ["text", "audio", "video", "xgboost", "deep", "all", "dev"]
+provides-extras = ["text", "audio", "video", "xgboost", "deep", "xai", "all", "dev"]
 
 [[package]]
 name = "ml-dtypes"

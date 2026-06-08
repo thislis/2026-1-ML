@@ -15,8 +15,8 @@ from typing import ClassVar, Self
 import numpy as np
 
 from meld_emotion.core.data import RawSample
-from meld_emotion.core.features import FeatureMatrix
-from meld_emotion.core.types import FeatureKind, FloatArray, Modality
+from meld_emotion.core.features import FeatureMatrix, FeatureUnit, SequenceFeatureMatrix
+from meld_emotion.core.types import BoolArray, FeatureKind, FloatArray, Modality
 
 
 class BaseFeatureExtractor(ABC):
@@ -52,3 +52,41 @@ class BaseFeatureExtractor(ABC):
         else:
             values = np.vstack(rows).astype(np.float64)
         return self._matrix(values, names)
+
+
+class BaseSequenceFeatureExtractor(BaseFeatureExtractor):
+    """2D pooled matrix 와 3D sequence matrix 를 함께 내는 추출기 기반."""
+
+    @abstractmethod
+    def transform_sequence(self, samples: Sequence[RawSample]) -> SequenceFeatureMatrix: ...
+
+    def transform(self, samples: Sequence[RawSample]) -> FeatureMatrix:
+        sequence = self.transform_sequence(samples)
+        values = _masked_mean(sequence.values, sequence.mask)
+        return self._matrix(values, sequence.names)
+
+    def _sequence_matrix(
+        self,
+        values: FloatArray,
+        mask: BoolArray,
+        units: Sequence[Sequence[FeatureUnit]],
+        names: Sequence[str],
+    ) -> SequenceFeatureMatrix:
+        return SequenceFeatureMatrix(
+            values=np.asarray(values, dtype=np.float64),
+            mask=np.asarray(mask, dtype=bool),
+            units=tuple(tuple(row) for row in units),
+            names=tuple(names),
+            modality=self.modality,
+            kind=self.kind,
+            source=self.name,
+        )
+
+
+def _masked_mean(values: FloatArray, mask: BoolArray) -> FloatArray:
+    if values.shape[0] == 0:
+        return np.zeros((0, values.shape[2]), dtype=np.float64)
+    weights = np.asarray(mask, dtype=np.float64)[..., None]
+    summed = (values * weights).sum(axis=1)
+    counts = weights.sum(axis=1).clip(min=1.0)
+    return np.asarray(summed / counts, dtype=np.float64)

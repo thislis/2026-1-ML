@@ -21,6 +21,7 @@ from meld_emotion.core.protocols import (
 )
 from meld_emotion.core.results import (
     CounterfactualResult,
+    DialogueXaiResult,
     ExperimentResult,
     ExplanationReport,
     FeatureContribution,
@@ -200,14 +201,17 @@ def _merge_explanations(reports: Sequence[ExplanationReport]) -> ExplanationRepo
     feature: tuple[FeatureContribution, ...] = ()
     modality: tuple[ModalityContribution, ...] = ()
     counterfactual: tuple[CounterfactualResult, ...] = ()
+    dialogue_xai: tuple[DialogueXaiResult, ...] = ()
     for report in reports:
         feature += report.feature_contributions
         modality += report.modality_contributions
         counterfactual += report.counterfactuals
+        dialogue_xai += report.dialogue_xai
     return ExplanationReport(
         feature_contributions=feature,
         modality_contributions=modality,
         counterfactuals=counterfactual,
+        dialogue_xai=dialogue_xai,
     )
 
 

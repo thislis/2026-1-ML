@@ -110,6 +110,8 @@ class MultimodalEmotionModel(nn.Module):
         audio_mask: torch.Tensor,
         video_mask: torch.Tensor,
         modality_mask: torch.Tensor,
+        return_xai: bool = False,
+        ablate_classifier_block: str | None = None,
     ) -> dict[str, torch.Tensor]:
         u_t, text_attn = self.text_encoder(text_x, text_mask)
         u_a, audio_attn = self.audio_encoder(audio_x, audio_mask)
@@ -123,10 +125,15 @@ class MultimodalEmotionModel(nn.Module):
         fused, gate = self.fusion(u_t, u_a, u_v, mask)
         context_h = self.context(fused, speaker_id, utterance_mask)
         memory, memory_attn = self.memory(context_h, utterance_mask, speaker_id)
-        logits = self.classifier(fused, context_h, memory)
+        classifier_fused = torch.zeros_like(fused) if ablate_classifier_block == "fused" else fused
+        classifier_context = (
+            torch.zeros_like(context_h) if ablate_classifier_block == "context" else context_h
+        )
+        classifier_memory = torch.zeros_like(memory) if ablate_classifier_block == "memory" else memory
+        logits = self.classifier(classifier_fused, classifier_context, classifier_memory)
         logits = logits * utterance_mask.to(dtype=logits.dtype).unsqueeze(-1)
 
-        return {
+        output = {
             "logits": logits,
             "modality_gate": gate,
             "text_attention": text_attn,
@@ -134,3 +141,15 @@ class MultimodalEmotionModel(nn.Module):
             "video_attention": video_attn,
             "memory_attention": memory_attn,
         }
+        if return_xai:
+            output.update(
+                {
+                    "u_text": u_t,
+                    "u_audio": u_a,
+                    "u_video": u_v,
+                    "fused": fused,
+                    "context_h": context_h,
+                    "memory": memory,
+                }
+            )
+        return output

@@ -13,6 +13,7 @@ import io
 import logging
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 
 # builder 를 import 하면 모든 구체 컴포넌트가 로드되어 상태 레지스트리가 채워진다.
 from meld_emotion.config.loader import load_config, load_suite
@@ -93,11 +94,16 @@ def _cmd_infer(
     device: str,
     top_k: int,
     json_output: bool,
+    include_xai: bool,
+    xai_steps: int,
+    xai_top_k: int,
+    xai_dashboard: str | None,
     log_level: str,
     log_file: str | None,
 ) -> int:
     configure_logging(log_level, log_file)
     from meld_emotion.inference import (
+        dashboard_to_json,
         format_inference_result,
         result_to_json,
         run_inference,
@@ -110,7 +116,15 @@ def _cmd_infer(
         checkpoint_path=checkpoint,
         device=device,
         top_k=top_k,
+        include_xai=include_xai,
+        xai_n_steps=xai_steps,
+        xai_top_k=xai_top_k,
     )
+    if xai_dashboard is not None:
+        dashboard_path = Path(xai_dashboard)
+        dashboard_path.parent.mkdir(parents=True, exist_ok=True)
+        dashboard_path.write_text(dashboard_to_json(result), encoding="utf-8")
+        logger.info("inference XAI dashboard 저장 완료: path=%s", dashboard_path)
     print(result_to_json(result) if json_output else format_inference_result(result))
     logger.info("단일 입력 추론 완료: label=%s probability=%.6f", result.label.value, result.probability)
     return 0
@@ -143,6 +157,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="추론 장치",
     )
     infer_parser.add_argument("--top-k", type=int, default=7, help="출력할 상위 감정 수")
+    infer_parser.add_argument(
+        "--xai",
+        action="store_true",
+        help="감정 예측과 함께 fine-grained XAI 결과를 계산",
+    )
+    infer_parser.add_argument(
+        "--xai-steps",
+        type=int,
+        default=32,
+        help="Integrated Gradients step 수",
+    )
+    infer_parser.add_argument(
+        "--xai-top-k",
+        type=int,
+        default=10,
+        help="XAI 항목별 top-k 개수",
+    )
+    infer_parser.add_argument(
+        "--xai-dashboard",
+        default=None,
+        help="단일 inference dashboard JSON 저장 경로",
+    )
     infer_parser.add_argument(
         "--json",
         action="store_true",
@@ -180,6 +216,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.device,
             args.top_k,
             args.json_output,
+            args.xai,
+            args.xai_steps,
+            args.xai_top_k,
+            args.xai_dashboard,
             args.log_level,
             args.log_file,
         )

@@ -10,7 +10,8 @@
   - `ConsoleReporter` (완전 구현): 평가·강건성·기여도 요약을 콘솔에 출력.
   - `JsonReporter` (완전 구현): 결과 전체를 JSON 으로 저장(numpy/enum 직렬화 처리).
   - `DashboardExporter` (임시): 제안서의 case-study 대시보드용 JSON 데이터 구조를 내보냄(실제
-    시각화 렌더링은 미구현).
+    시각화 렌더링은 미구현). fine-grained XAI 결과가 있으면 target utterance, modality,
+    dialogue, block, text/audio/video, dimension panel 용 payload 를 함께 저장한다.
   - `ComparisonReporter` (완전 구현): `meld-emotion compare` 의 suite 결과를 콘솔 표와 JSON 으로
     저장. `Reporter` Protocol 에 주입되는 리포터는 아니며 `ComparisonReport` 를 직접 받는다.
     실패한 변형은 `[Failed]` 표와 JSON 의 `error` 필드에 남기고, 성공한 변형의 metric/robustness
@@ -28,6 +29,9 @@
 
 - JSON 직렬화 헬퍼 `_jsonable` 은 dataclass/numpy 배열/Enum/매핑을 재귀 변환한다. 새 결과
   타입을 추가해도 대개 그대로 직렬화된다.
+- `ConsoleReporter` 는 `ExplanationReport.dialogue_xai` 가 있으면 각 target 의 top modality,
+  source utterance, token/audio span/video frame 을 짧게 출력한다. 전체 값은 JSON/dashboard
+  리포트에서 확인한다.
 - 출력 경로는 각 리포터 설정의 `path` 가 결정한다. `ExperimentConfig.output_dir` 은 현재
   리포터 경로에 자동 반영되지 않으므로, 저장 위치는 리포터의 `path` 에 직접 적는다.
 - suite 비교 출력 경로는 `SuiteConfig.output_path` 가 결정한다.

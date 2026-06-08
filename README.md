@@ -34,7 +34,10 @@ uv run meld-emotion run --config configs/example_meld_dialogue_rnn.yaml
 uv run meld-emotion compare --config configs/example_suite.yaml   # 여러 실험 비교표(Early/Late 등)
 uv sync --extra text --extra audio --extra video --extra deep      # 세 foundation feature + dialogue 비교 시
 uv run meld-emotion compare --config configs/all_model_w_all_features.yaml
+uv sync --extra text --extra audio --extra video --extra deep --extra xai
+uv run meld-emotion run --config configs/example_finegrained_xai.yaml
 uv run meld-emotion infer --mp4 sample.mp4 --text "I am so happy!" --checkpoint outputs/best_model.pt
+uv run meld-emotion infer --mp4 sample.mp4 --text "I am so happy!" --checkpoint outputs/best_model.pt --xai --json
 uv run python infer_emotion.py --mp4 sample.mp4 --text "I am so happy!"
 uv run meld-emotion status                             # 구현 상태(완료/임시/미구현) 표
 uv run python -m pytest -q                                       # 단위 + end-to-end 테스트(xgboost native 제외)
@@ -57,12 +60,17 @@ EmbeddingGemma 텍스트 임베딩, Wav2Vec2 XLS-R 오디오 임베딩, TimeSfor
 uv sync --extra text --extra audio --extra video --extra deep
 uv run meld-emotion infer --mp4 sample.mp4 --text "I am so happy!" --checkpoint outputs/best_model.pt
 uv run meld-emotion infer --mp4 sample.mp4 --text "I am so happy!" --json
+uv run meld-emotion infer --mp4 sample.mp4 --text "I am so happy!" --xai --xai-dashboard outputs/infer_xai_dashboard.json
 uv run python infer_emotion.py --mp4 sample.mp4 --text "I am so happy!"
 ```
 
 이 경로도 EmbeddingGemma 를 로드하므로 최초 실행 전 Hugging Face 에서
 `google/embeddinggemma-300m` 라이선스에 동의하고 `uv run huggingface-cli login` 또는 `HF_TOKEN`
 환경변수로 인증해야 한다.
+`--xai` 를 추가하면 inference 도 `text_token_embeddings`, `audio_wav2vec2_xlsr_sequence`,
+`video_frame_embeddings` sequence feature 로 예측과 fine-grained XAI 를 함께 계산한다. 이 경우
+`uv sync --extra text --extra audio --extra video --extra deep --extra xai` 가 필요하며, checkpoint
+의 text/audio/video input dim 이 sequence extractor 출력 차원(기본 768/1024/768)과 맞아야 한다.
 
 macOS arm64 환경에서는 PyTorch 와 XGBoost 가 서로 다른 OpenMP(`libomp`) 런타임을 같은 Python
 프로세스에 올릴 때 native segfault 가 날 수 있다. 그래서 기본 pytest 는 `xgboost_native`
@@ -180,6 +188,25 @@ uv run meld-emotion compare --config configs/all_model_w_all_features.yaml
 `no_text`, `no_audio`, `no_video`, `text_only`, `audio_only`, `video_only` 이며 출력 파일은
 `outputs/all_model_w_all_features.json` 이다.
 
+## Fine-grained Dialogue XAI
+
+`dialogue_rnn` 에서 단어/token, 오디오 시간 구간, 비디오 프레임까지 내려가는 XAI 를 보려면
+sequence extractor 와 Captum 설명기를 함께 쓴다. v1 경로는 `text_token_embeddings`,
+`audio_wav2vec2_xlsr_sequence`, `video_frame_embeddings` 를 사용해 `FeatureBundle.sequence_matrices`
+에 `[n,L,D]` 특징을 보존하고, 모델 adapter 가 이를 `[B,N,L,D]` dialogue tensor 로 넘긴다.
+
+```bash
+uv sync --extra text --extra audio --extra video --extra deep --extra xai
+uv run meld-emotion run --config configs/example_finegrained_xai.yaml
+```
+
+`dialogue_finegrained_xai` 는 target logit 기준 Integrated Gradients 와 ablation 을 사용해
+token/audio-span/video-frame top-k, source utterance 중요도, modality attribution share,
+fused/context/memory block 중요도, `modality_gate`, `memory_attention`, embedding dimension
+attribution 을 함께 저장한다. JSON 리포트는 `outputs/finegrained_xai.json`, dashboard data contract
+는 `outputs/finegrained_xai_dashboard.json` 에 저장된다. 자세한 데이터 흐름과 해석 주의사항은
+[docs/finegrained_xai.md](docs/finegrained_xai.md) 를 참고한다.
+
 실제 MELD 실험 템플릿은 [configs/example_meld_early_svm.yaml](configs/example_meld_early_svm.yaml)
 및 dialogue-level PyTorch 모델용
 [configs/example_meld_dialogue_rnn.yaml](configs/example_meld_dialogue_rnn.yaml) 이다.
@@ -238,7 +265,7 @@ DatasetSource → FeaturePipeline(추출기들) → FeatureBundle
 - **무엇이 되어 있나**: `uv run meld-emotion status` 가 [core/status.py](src/meld_emotion/core/status.py)
   레지스트리에서 직접 읽어 REAL / PLACEHOLDER / UNIMPLEMENTED 를 출력한다. 손으로 관리하는
   목록이 아니므로 코드와 어긋나지 않는다.
-  현재 상태 기준 전체 51개 컴포넌트 중 REAL 44개, PLACEHOLDER 7개, UNIMPLEMENTED 0개다.
+  현재 상태 기준 전체 56개 컴포넌트 중 REAL 49개, PLACEHOLDER 7개, UNIMPLEMENTED 0개다.
   `MediaLoader` 는 MP4 오디오 waveform 과 비디오 프레임을 분리해서 lazy-load 한다.
   suite 실행은 같은 dataset/extractor/media signature 를 가진 실험끼리 in-memory feature cache 를
   공유한다. 다만 `DiskFeatureCache` 는 아직 실행 간 영속화가 아닌 인메모리 위임 placeholder 다.
