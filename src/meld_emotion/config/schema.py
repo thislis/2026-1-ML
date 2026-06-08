@@ -380,6 +380,7 @@ class DialogueTrainingSettings:
     modality_dropout: float = 0.2
     seed: int = 0
     device: str = "cpu"
+    best_checkpoint_path: str | None = None
 
 
 @dataclass(frozen=True)

@@ -176,4 +176,5 @@ experiments:
         validation_fraction: 0.1
         modality_dropout: 0.1
         seed: 0
+        best_checkpoint_path: outputs/best_model.pt
         device: mps

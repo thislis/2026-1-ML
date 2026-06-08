@@ -19,6 +19,8 @@
   실행해 `ComparisonReport` 로 모은다(기존 단일 실행 경로를 재사용하는 얇은 층). dataset,
   extractors, media, train/eval split 이 같은 실험끼리는 suite 내부 in-memory feature cache 를
   공유한다.
+- `meld_emotion.inference` — 학습 runner 와 별개로 단일 MP4+텍스트를 `RawSample` 하나로 감싸
+  `FeaturePipeline` 과 저장된 `dialogue_rnn` checkpoint 를 재사용해 감정을 예측한다.
 
 ## 흐름
 
@@ -106,3 +108,6 @@ experiments:                                 # base 위에 차이만
   적용 후 실제 feature bundle 샘플 수(`n_train`/`n_test`)를 함께 기록한다.
 - `meld-emotion run` 과 `meld-emotion compare` 는 기본 `INFO` 로그를 stderr 로 출력하며,
   `--log-level DEBUG` 와 `--log-file <path>` 로 상세 로그와 파일 로그를 켤 수 있다.
+- `meld-emotion infer --mp4 <path> --text <text>` 는 `outputs/best_model.pt` 를 기본 checkpoint 로
+  사용해 단일 발화 감정을 출력한다. 같은 기능은 루트의 `infer_emotion.py` wrapper 로도 실행할 수
+  있다.

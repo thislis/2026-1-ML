@@ -34,6 +34,8 @@ uv run meld-emotion run --config configs/example_meld_dialogue_rnn.yaml
 uv run meld-emotion compare --config configs/example_suite.yaml   # 여러 실험 비교표(Early/Late 등)
 uv sync --extra text --extra audio --extra video --extra deep      # 세 foundation feature + dialogue 비교 시
 uv run meld-emotion compare --config configs/all_model_w_all_features.yaml
+uv run meld-emotion infer --mp4 sample.mp4 --text "I am so happy!" --checkpoint outputs/best_model.pt
+uv run python infer_emotion.py --mp4 sample.mp4 --text "I am so happy!"
 uv run meld-emotion status                             # 구현 상태(완료/임시/미구현) 표
 uv run python -m pytest -q                                       # 단위 + end-to-end 테스트(xgboost native 제외)
 uv sync --extra xgboost                                        # XGBoost native 테스트 의존성
@@ -46,6 +48,21 @@ uv run ruff check .                                    # 린트
 `--log-level DEBUG`, 파일에도 남기려면 `--log-file outputs/run.log` 를 추가한다.
 FeaturePipeline 은 raw media 를 chunk 단위로 읽고 최종 feature matrix 만 누적하므로, 큰 MELD MP4
 실험에서도 메모리에 원본 waveform/frame 전체를 오래 붙잡지 않는다.
+
+학습된 dialogue RNN checkpoint 로 단일 MP4+텍스트 감정을 예측하려면 `infer` 를 사용한다.
+기본 checkpoint 는 `outputs/best_model.pt` 이며, `all_model_w_all_features` suite 와 같은
+EmbeddingGemma 텍스트 임베딩, Wav2Vec2 XLS-R 오디오 임베딩, TimeSformer 비디오 임베딩을 쓴다.
+
+```bash
+uv sync --extra text --extra audio --extra video --extra deep
+uv run meld-emotion infer --mp4 sample.mp4 --text "I am so happy!" --checkpoint outputs/best_model.pt
+uv run meld-emotion infer --mp4 sample.mp4 --text "I am so happy!" --json
+uv run python infer_emotion.py --mp4 sample.mp4 --text "I am so happy!"
+```
+
+이 경로도 EmbeddingGemma 를 로드하므로 최초 실행 전 Hugging Face 에서
+`google/embeddinggemma-300m` 라이선스에 동의하고 `uv run huggingface-cli login` 또는 `HF_TOKEN`
+환경변수로 인증해야 한다.
 
 macOS arm64 환경에서는 PyTorch 와 XGBoost 가 서로 다른 OpenMP(`libomp`) 런타임을 같은 Python
 프로세스에 올릴 때 native segfault 가 날 수 있다. 그래서 기본 pytest 는 `xgboost_native`
@@ -188,6 +205,7 @@ gated fusion, speaker-aware dialogue GRU, causal memory attention(RoPE 기본 of
 | [explain/](src/meld_emotion/explain/README.md) | permutation·모달리티 ablation·반사실 | **새 설명기** |
 | [pipeline/](src/meld_emotion/pipeline/README.md) | 특징 캐시·특징 파이프라인·러너·구성 루트 | 조립/오케스트레이션 |
 | [reporting/](src/meld_emotion/reporting/README.md) | 콘솔/JSON/대시보드·suite 비교 리포터 | 새 출력 형식 |
+| [tests/](tests/) | pytest 기반 단위·통합·스모크 테스트, Protocol/설정 roundtrip/status/문서 가드 | 새 기능 구현 시 회귀 테스트 |
 
 ## 실험 한 번의 흐름
 

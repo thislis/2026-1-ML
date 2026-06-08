@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass
-from typing import Self
+from dataclasses import asdict, dataclass, replace
+from pathlib import Path
+from typing import Any, Self
 
 import numpy as np
 import torch
@@ -65,6 +66,36 @@ class TorchDialogueEmotionClassifier:
     def classes(self) -> tuple[Emotion, ...]:
         return self._classes
 
+    @classmethod
+    def from_checkpoint(cls, path: str | Path, device: str | None = None) -> TorchDialogueEmotionClassifier:
+        """저장된 dialogue_rnn checkpoint 로부터 추론 가능한 classifier 를 복원한다."""
+
+        _require_torch()
+        checkpoint_path = Path(path)
+        if not checkpoint_path.exists():
+            raise FileNotFoundError(f"checkpoint 를 찾을 수 없습니다: {checkpoint_path}")
+        checkpoint = torch.load(checkpoint_path, map_location="cpu")
+        if not isinstance(checkpoint, Mapping):
+            raise ValueError(f"checkpoint 형식이 올바르지 않습니다: {checkpoint_path}")
+
+        config = _config_from_checkpoint(_require_mapping(checkpoint, "config"))
+        if device is not None:
+            config = replace(config, training=replace(config.training, device=device))
+        classes = _classes_from_checkpoint(checkpoint.get("classes"))
+        classifier = cls(config, classes)
+        classifier._dims = _dims_from_checkpoint(_require_mapping(checkpoint, "dims"))
+        classifier._speaker_to_id = _speaker_vocab_from_checkpoint(
+            _require_mapping(checkpoint, "speaker_to_id")
+        )
+
+        state = checkpoint.get("model_state_dict")
+        if not isinstance(state, Mapping):
+            raise ValueError("checkpoint 에 model_state_dict 가 없습니다")
+        model = classifier._build_model().to(classifier._device)
+        model.load_state_dict(dict(state))
+        classifier._model = model
+        return classifier
+
     def fit(self, bundle: FeatureBundle, y: IntArray) -> Self:
         if len(y) != bundle.n_samples:
             raise ValueError(f"y 길이가 샘플 수와 다릅니다: {len(y)} != {bundle.n_samples}")
@@ -90,7 +121,7 @@ class TorchDialogueEmotionClassifier:
         best_state: Mapping[str, torch.Tensor] | None = None
         best_score = -1.0
         stale = 0
-        for _ in range(self._config.training.max_epochs):
+        for epoch in range(1, self._config.training.max_epochs + 1):
             self._model.train()
             for indices in self._iter_batches(train_dialogues, shuffle=True, rng=rng):
                 batch = self._tensor_batch(arrays, indices)
@@ -118,16 +149,17 @@ class TorchDialogueEmotionClassifier:
                 )
                 optimizer.step()
 
-            if val_dialogues:
-                score = self._validation_score(arrays, val_dialogues)
-                if score > best_score:
-                    best_score = score
-                    best_state = self._state_dict_cpu(self._model)
-                    stale = 0
-                else:
-                    stale += 1
-                    if stale >= self._config.training.early_stopping_patience:
-                        break
+            score_dialogues = val_dialogues if val_dialogues else train_dialogues
+            score = self._validation_score(arrays, score_dialogues)
+            if score > best_score:
+                best_score = score
+                best_state = self._state_dict_cpu(self._model)
+                stale = 0
+                self._save_best_checkpoint(epoch, best_score, best_state, bool(val_dialogues))
+            elif val_dialogues:
+                stale += 1
+                if stale >= self._config.training.early_stopping_patience:
+                    break
 
         if best_state is not None:
             self._model.load_state_dict(best_state)
@@ -406,10 +438,82 @@ class TorchDialogueEmotionClassifier:
     def _state_dict_cpu(model: MultimodalEmotionModel) -> dict[str, torch.Tensor]:
         return {key: value.detach().cpu().clone() for key, value in model.state_dict().items()}
 
+    def _save_best_checkpoint(
+        self,
+        epoch: int,
+        score: float,
+        state_dict: Mapping[str, torch.Tensor],
+        used_validation: bool,
+    ) -> None:
+        path = self._config.training.best_checkpoint_path
+        if path is None:
+            return
+        checkpoint_path = Path(path)
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(
+            {
+                "epoch": epoch,
+                "score": score,
+                "score_name": "weighted_f1",
+                "score_split": "validation" if used_validation else "train",
+                "model_state_dict": dict(state_dict),
+                "speaker_to_id": dict(self._speaker_to_id),
+                "dims": {modality.value: dim for modality, dim in self._dims.items()},
+                "classes": [emotion.value for emotion in self._classes],
+                "config": _checkpoint_config(self._config),
+            },
+            checkpoint_path,
+        )
+
     def _require_model(self) -> MultimodalEmotionModel:
         if self._model is None:
             raise RuntimeError("학습되지 않은 분류기입니다. 먼저 fit 을 호출하세요.")
         return self._model
+
+
+def _checkpoint_config(config: DialogueRnnConfig) -> dict[str, Any]:
+    result = asdict(config)
+    result["type"] = DialogueRnnConfig.type
+    return result
+
+
+def _config_from_checkpoint(data: Mapping[str, Any]) -> DialogueRnnConfig:
+    from meld_emotion.config.loader import from_dict
+
+    config = from_dict({"model": dict(data)}).model
+    if not isinstance(config, DialogueRnnConfig):
+        raise ValueError("checkpoint config 가 dialogue_rnn 설정이 아닙니다")
+    return config
+
+
+def _require_mapping(checkpoint: Mapping[str, Any], key: str) -> Mapping[str, Any]:
+    value = checkpoint.get(key)
+    if not isinstance(value, Mapping):
+        raise ValueError(f"checkpoint 에 {key!r} 매핑이 없습니다")
+    return value
+
+
+def _dims_from_checkpoint(data: Mapping[str, Any]) -> dict[Modality, int]:
+    dims: dict[Modality, int] = {}
+    for modality in (Modality.TEXT, Modality.AUDIO, Modality.VIDEO):
+        value = data.get(modality.value)
+        if value is None:
+            raise ValueError(f"checkpoint dims 에 {modality.value!r} 값이 없습니다")
+        dims[modality] = int(value)
+    return dims
+
+
+def _speaker_vocab_from_checkpoint(data: Mapping[str, Any]) -> dict[str, int]:
+    return {str(speaker): int(index) for speaker, index in data.items()}
+
+
+def _classes_from_checkpoint(value: object) -> tuple[Emotion, ...]:
+    if not isinstance(value, list | tuple):
+        raise ValueError("checkpoint 에 classes 목록이 없습니다")
+    classes = tuple(Emotion(str(label)) for label in value)
+    if not classes:
+        raise ValueError("checkpoint classes 가 비어 있습니다")
+    return classes
 
 
 def _utterances_or_fallback(bundle: FeatureBundle) -> tuple[UtteranceSpec, ...]:

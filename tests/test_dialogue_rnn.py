@@ -81,6 +81,11 @@ assert torch.allclose(attn[0, 3], torch.zeros_like(attn[0, 3]))
 def test_dialogue_rnn_pipeline_in_subprocess() -> None:
     _run_torch_snippet(
         """
+import tempfile
+from pathlib import Path
+
+import torch
+
 from meld_emotion.config.schema import (
     AudioConceptConfig,
     DialogueRnnConfig,
@@ -99,6 +104,8 @@ classifier = build_classifier(DialogueRnnConfig(), tuple())
 assert isinstance(classifier, TorchDialogueEmotionClassifier)
 assert isinstance(classifier, Classifier)
 
+checkpoint_dir = tempfile.TemporaryDirectory()
+checkpoint_path = Path(checkpoint_dir.name) / "best_model.pt"
 config = ExperimentConfig(
     name="dialogue_smoke",
     dataset=SyntheticConfig(n_train=42, n_dev=0, n_test=14, seed=3),
@@ -110,6 +117,7 @@ config = ExperimentConfig(
             validation_fraction=0.0,
             modality_dropout=0.0,
             seed=0,
+            best_checkpoint_path=str(checkpoint_path),
         )
     ),
     evaluation=EvaluationConfig(metrics=("accuracy",), confusion=False, scenarios=("full",)),
@@ -117,6 +125,31 @@ config = ExperimentConfig(
 )
 result = build_experiment(config).run()
 assert result.evaluation.metric("accuracy") is not None
+assert checkpoint_path.exists()
+checkpoint = torch.load(checkpoint_path, map_location="cpu")
+assert checkpoint["epoch"] >= 1
+assert checkpoint["score_name"] == "weighted_f1"
+assert checkpoint["score_split"] == "train"
+assert "model_state_dict" in checkpoint
+assert checkpoint["config"]["training"]["best_checkpoint_path"] == str(checkpoint_path)
+
+from meld_emotion.core.types import Split
+from meld_emotion.data.synthetic import SyntheticDatasetSource
+from meld_emotion.features.audio import AudioConceptExtractor
+from meld_emotion.features.text import TextConceptExtractor
+from meld_emotion.features.video import VideoConceptExtractor
+from meld_emotion.pipeline.feature_pipeline import FeaturePipeline
+
+restore_source = SyntheticDatasetSource(n_train=42, n_dev=0, n_test=14, seed=3)
+restore_samples = list(restore_source.load(Split.TRAIN))
+restore_bundle = FeaturePipeline(
+    [TextConceptExtractor(), AudioConceptExtractor(), VideoConceptExtractor()]
+).fit_transform(restore_samples, Split.TRAIN)
+restored = TorchDialogueEmotionClassifier.from_checkpoint(checkpoint_path, device="cpu")
+proba = restored.predict_proba(restore_bundle)
+assert proba.shape == (restore_bundle.n_samples, 7)
+assert (abs(proba.sum(axis=1) - 1.0) < 1e-6).all()
+checkpoint_dir.cleanup()
 """
     )
 
@@ -125,7 +158,11 @@ def test_dialogue_rnn_config_roundtrip() -> None:
     config = ExperimentConfig(
         name="dialogue",
         model=DialogueRnnConfig(
-            training=DialogueTrainingSettings(max_epochs=2, validation_fraction=0.0)
+            training=DialogueTrainingSettings(
+                max_epochs=2,
+                validation_fraction=0.0,
+                best_checkpoint_path="outputs/best_model.pt",
+            )
         ),
     )
     assert from_dict(to_dict(config)) == config

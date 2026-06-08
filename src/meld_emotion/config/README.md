@@ -61,7 +61,12 @@ model:
     batch_size: 8
     max_epochs: 50
     modality_dropout: 0.2
+    best_checkpoint_path: outputs/best_model.pt
 ```
+
+`training.best_checkpoint_path` 를 지정하면 각 epoch 뒤 weighted F1 을 계산해 지금까지 가장 좋은
+`dialogue_rnn` 모델을 해당 경로에 checkpoint 로 저장한다. validation split 이 있으면 validation
+점수를, `validation_fraction: 0.0` 처럼 검증 분할이 없으면 train 점수를 기준으로 삼는다.
 
 ## 현재 등록된 주요 타입
 

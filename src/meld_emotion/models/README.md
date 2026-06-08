@@ -37,6 +37,10 @@
 
 현재 `configs/all_model_w_all_features.yaml` 은 text/audio/video foundation embedding 위에서
 `majority`, `random`, early-fusion baseline, `dialogue_rnn` 을 한 suite 로 비교하는 예시다.
+이 suite 의 `dialogue_rnn.training.best_checkpoint_path` 는 `outputs/best_model.pt` 로 설정되어
+있어 가장 좋은 epoch 의 `model_state_dict`, 설정, speaker vocabulary, feature 차원을 함께 저장한다.
+저장된 checkpoint 는 `TorchDialogueEmotionClassifier.from_checkpoint()` 로 복원되며,
+`meld-emotion infer --mp4 <path> --text <text>` 와 루트 `infer_emotion.py` 가 이 경로를 사용한다.
 
 ## 클래스 수(K)는 데이터가 아니라 레이블 공간에서
 
@@ -67,6 +71,8 @@
   RoPE off) → utterance classifier 이다.
 - 입력 feature 차원이 설정값과 다르면 adapter 가 train bundle 기준으로 자동 추론하거나,
   명시 차원과 실제 차원이 충돌할 때 오류를 낸다.
+- `training.best_checkpoint_path` 를 지정하면 weighted F1 기준 최고 모델을 저장한다. 추론 시에는
+  checkpoint 의 `dims` 와 입력 extractor 출력 차원이 같아야 한다.
 
 ## sklearn 베이스라인 메모
 
