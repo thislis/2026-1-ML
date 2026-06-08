@@ -1,6 +1,7 @@
 """명령줄 인터페이스.
 
 - ``meld-emotion run --config <path>`` : YAML 설정으로 실험을 실행한다.
+- ``meld-emotion infer --mp4 <path> --text <text>`` : 저장된 checkpoint 로 단일 입력을 추론한다.
 - ``meld-emotion status`` : 모든 컴포넌트의 구현 상태(REAL/PLACEHOLDER/UNIMPLEMENTED)를
   코드에서 직접 읽어 출력한다(할 일 목록의 단일 진실 공급원).
 """
@@ -85,6 +86,36 @@ def _cmd_status() -> int:
     return 0
 
 
+def _cmd_infer(
+    mp4_path: str,
+    text: str,
+    checkpoint: str,
+    device: str,
+    top_k: int,
+    json_output: bool,
+    log_level: str,
+    log_file: str | None,
+) -> int:
+    configure_logging(log_level, log_file)
+    from meld_emotion.inference import (
+        format_inference_result,
+        result_to_json,
+        run_inference,
+    )
+
+    logger.info("단일 입력 추론 준비: mp4=%s checkpoint=%s", mp4_path, checkpoint)
+    result = run_inference(
+        mp4_path=mp4_path,
+        text=text,
+        checkpoint_path=checkpoint,
+        device=device,
+        top_k=top_k,
+    )
+    print(result_to_json(result) if json_output else format_inference_result(result))
+    logger.info("단일 입력 추론 완료: label=%s probability=%.6f", result.label.value, result.probability)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="meld-emotion", description="MELD 멀티모달 감정 인식")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -96,6 +127,29 @@ def build_parser() -> argparse.ArgumentParser:
     compare_parser = sub.add_parser("compare", help="여러 실험을 실행하고 비교표 출력")
     compare_parser.add_argument("--config", required=True, help="비교 묶음(suite) YAML 경로")
     _add_logging_args(compare_parser)
+
+    infer_parser = sub.add_parser("infer", help="MP4 파일과 텍스트로 단일 감정 추론")
+    infer_parser.add_argument("--mp4", required=True, help="추론할 MP4 파일 경로")
+    infer_parser.add_argument("--text", required=True, help="MP4 발화에 대응하는 텍스트")
+    infer_parser.add_argument(
+        "--checkpoint",
+        default="outputs/best_model.pt",
+        help="dialogue_rnn checkpoint 경로",
+    )
+    infer_parser.add_argument(
+        "--device",
+        default="auto",
+        choices=("auto", "cpu", "mps", "cuda"),
+        help="추론 장치",
+    )
+    infer_parser.add_argument("--top-k", type=int, default=7, help="출력할 상위 감정 수")
+    infer_parser.add_argument(
+        "--json",
+        action="store_true",
+        dest="json_output",
+        help="결과를 JSON 으로 출력",
+    )
+    _add_logging_args(infer_parser)
 
     sub.add_parser("status", help="컴포넌트 구현 상태 출력")
     return parser
@@ -118,6 +172,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_run(args.config, args.log_level, args.log_file)
     if args.command == "compare":
         return _cmd_compare(args.config, args.log_level, args.log_file)
+    if args.command == "infer":
+        return _cmd_infer(
+            args.mp4,
+            args.text,
+            args.checkpoint,
+            args.device,
+            args.top_k,
+            args.json_output,
+            args.log_level,
+            args.log_file,
+        )
     if args.command == "status":
         return _cmd_status()
     return 1
