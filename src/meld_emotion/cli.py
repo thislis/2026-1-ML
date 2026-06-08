@@ -2,6 +2,8 @@
 
 - ``meld-emotion run --config <path>`` : YAML 설정으로 실험을 실행한다.
 - ``meld-emotion infer --mp4 <path> --text <text>`` : 저장된 checkpoint 로 단일 입력을 추론한다.
+- ``meld-emotion infer-batch --csv <path> --mp4-dir <dir>`` : MELD split 전체를 추론하고
+  fine-grained XAI 분석 리포트를 만든다.
 - ``meld-emotion status`` : 모든 컴포넌트의 구현 상태(REAL/PLACEHOLDER/UNIMPLEMENTED)를
   코드에서 직접 읽어 출력한다(할 일 목록의 단일 진실 공급원).
 """
@@ -130,6 +132,52 @@ def _cmd_infer(
     return 0
 
 
+def _cmd_infer_batch(
+    csv_path: str,
+    mp4_dir: str,
+    checkpoint: str,
+    device: str,
+    predictions_path: str,
+    summary_path: str,
+    report_path: str,
+    suite_path: str,
+    xai_steps: int,
+    xai_top_k: int,
+    resume: bool,
+    limit: int | None,
+    log_level: str,
+    log_file: str | None,
+) -> int:
+    configure_logging(log_level, log_file)
+    from meld_emotion.inference_batch import run_batch_inference
+
+    logger.info(
+        "batch inference 준비: csv=%s mp4_dir=%s checkpoint=%s",
+        csv_path,
+        mp4_dir,
+        checkpoint,
+    )
+    result = run_batch_inference(
+        csv_path=csv_path,
+        mp4_dir=mp4_dir,
+        checkpoint_path=checkpoint,
+        device=device,
+        predictions_path=predictions_path,
+        summary_path=summary_path,
+        report_path=report_path,
+        suite_path=suite_path,
+        xai_steps=xai_steps,
+        xai_top_k=xai_top_k,
+        resume=resume,
+        limit=limit,
+    )
+    print(f"predictions: {result.paths.predictions}")
+    print(f"summary: {result.paths.summary}")
+    print(f"report: {result.paths.report}")
+    logger.info("batch inference 완료: records=%s", result.summary.get("n_records"))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="meld-emotion", description="MELD 멀티모달 감정 인식")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -187,6 +235,68 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_logging_args(infer_parser)
 
+    batch_parser = sub.add_parser(
+        "infer-batch",
+        help="MELD CSV/MP4 디렉터리 전체를 추론하고 XAI 분석 리포트 생성",
+    )
+    batch_parser.add_argument("--csv", required=True, help="MELD *_sent_emo.csv 경로")
+    batch_parser.add_argument("--mp4-dir", required=True, help="MP4 split 디렉터리")
+    batch_parser.add_argument(
+        "--checkpoint",
+        default="outputs/best_model.pt",
+        help="dialogue_rnn checkpoint 경로",
+    )
+    batch_parser.add_argument(
+        "--device",
+        default="auto",
+        choices=("auto", "cpu", "mps", "cuda"),
+        help="추론 장치",
+    )
+    batch_parser.add_argument(
+        "--predictions",
+        default="outputs/test_batch_xai_predictions.jsonl",
+        help="샘플별 prediction/XAI JSONL 출력 경로",
+    )
+    batch_parser.add_argument(
+        "--summary",
+        default="outputs/test_batch_xai_summary.json",
+        help="통합 분석 JSON 출력 경로",
+    )
+    batch_parser.add_argument(
+        "--report",
+        default="outputs/dialogue_rnn_xai_analysis.md",
+        help="통합 분석 Markdown 리포트 경로",
+    )
+    batch_parser.add_argument(
+        "--suite",
+        default="outputs/all_model_w_all_features.json",
+        help="SVM/dialogue_rnn 비교 기준 suite JSON 경로",
+    )
+    batch_parser.add_argument(
+        "--xai-steps",
+        type=int,
+        default=32,
+        help="Integrated Gradients step 수",
+    )
+    batch_parser.add_argument(
+        "--xai-top-k",
+        type=int,
+        default=10,
+        help="XAI 항목별 top-k 개수",
+    )
+    batch_parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="기존 JSONL 의 처리 완료 uid 를 건너뜀",
+    )
+    batch_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="스모크 테스트용 최대 샘플 수",
+    )
+    _add_logging_args(batch_parser)
+
     sub.add_parser("status", help="컴포넌트 구현 상태 출력")
     return parser
 
@@ -220,6 +330,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.xai_steps,
             args.xai_top_k,
             args.xai_dashboard,
+            args.log_level,
+            args.log_file,
+        )
+    if args.command == "infer-batch":
+        return _cmd_infer_batch(
+            args.csv,
+            args.mp4_dir,
+            args.checkpoint,
+            args.device,
+            args.predictions,
+            args.summary,
+            args.report,
+            args.suite,
+            args.xai_steps,
+            args.xai_top_k,
+            args.resume,
+            args.limit,
             args.log_level,
             args.log_file,
         )
