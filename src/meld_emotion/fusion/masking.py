@@ -13,7 +13,7 @@ from typing import Self
 
 import numpy as np
 
-from meld_emotion.core.features import FeatureBundle, FeatureMatrix
+from meld_emotion.core.features import FeatureBundle, FeatureMatrix, SequenceFeatureMatrix
 from meld_emotion.core.status import real
 from meld_emotion.core.types import BoolArray, Modality
 
@@ -60,11 +60,27 @@ def _zeroed(matrix: FeatureMatrix) -> FeatureMatrix:
     )
 
 
+def _zeroed_sequence(matrix: SequenceFeatureMatrix) -> SequenceFeatureMatrix:
+    return SequenceFeatureMatrix(
+        values=np.zeros_like(matrix.values),
+        mask=np.zeros_like(matrix.mask, dtype=bool),
+        units=matrix.units,
+        names=matrix.names,
+        modality=matrix.modality,
+        kind=matrix.kind,
+        source=matrix.source,
+    )
+
+
 def mask_bundle(bundle: FeatureBundle, scenario: ModalityScenario) -> FeatureBundle:
     """시나리오에 맞춰 특징 묶음을 마스킹한 새 묶음을 반환한다."""
 
     n = bundle.n_samples
     matrices = tuple(m if scenario.has(m.modality) else _zeroed(m) for m in bundle.matrices)
+    sequence_matrices = tuple(
+        m if scenario.has(m.modality) else _zeroed_sequence(m)
+        for m in bundle.sequence_matrices
+    )
     availability: dict[Modality, BoolArray] = {}
     for modality, avail in bundle.availability.items():
         if scenario.has(modality):
@@ -74,6 +90,7 @@ def mask_bundle(bundle: FeatureBundle, scenario: ModalityScenario) -> FeatureBun
     return FeatureBundle(
         uids=bundle.uids,
         matrices=matrices,
+        sequence_matrices=sequence_matrices,
         availability=availability,
         utterances=bundle.utterances,
     )
@@ -113,10 +130,15 @@ class ModalityDropout:
             mod: rng.random(n) < self._p for mod in bundle.modalities
         }
         matrices = tuple(self._apply_to_matrix(m, drop.get(m.modality)) for m in bundle.matrices)
+        sequence_matrices = tuple(
+            self._apply_to_sequence_matrix(m, drop.get(m.modality))
+            for m in bundle.sequence_matrices
+        )
         availability = self._updated_availability(bundle.availability, drop, n)
         return FeatureBundle(
             uids=bundle.uids,
             matrices=matrices,
+            sequence_matrices=sequence_matrices,
             availability=availability,
             utterances=bundle.utterances,
         )
@@ -129,6 +151,26 @@ class ModalityDropout:
         values[drop_mask] = 0.0
         return FeatureMatrix(
             values=values,
+            names=matrix.names,
+            modality=matrix.modality,
+            kind=matrix.kind,
+            source=matrix.source,
+        )
+
+    @staticmethod
+    def _apply_to_sequence_matrix(
+        matrix: SequenceFeatureMatrix, drop_mask: BoolArray | None
+    ) -> SequenceFeatureMatrix:
+        if drop_mask is None:
+            return matrix
+        values = matrix.values.copy()
+        mask = matrix.mask.copy()
+        values[drop_mask] = 0.0
+        mask[drop_mask] = False
+        return SequenceFeatureMatrix(
+            values=values,
+            mask=mask,
+            units=matrix.units,
             names=matrix.names,
             modality=matrix.modality,
             kind=matrix.kind,

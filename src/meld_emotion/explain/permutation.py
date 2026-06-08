@@ -28,6 +28,7 @@ def _replace_matrix(bundle: FeatureBundle, index: int, matrix: FeatureMatrix) ->
     return FeatureBundle(
         uids=bundle.uids,
         matrices=tuple(matrices),
+        sequence_matrices=bundle.sequence_matrices,
         availability=bundle.availability,
         utterances=bundle.utterances,
     )

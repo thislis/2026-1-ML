@@ -4,18 +4,24 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass
+from enum import Enum
 from importlib import import_module
 from pathlib import Path
 from typing import Any
 
 from meld_emotion.core.data import AudioInput, ModalityMask, RawSample, VideoInput
 from meld_emotion.core.protocols import Classifier, FeatureExtractor
+from meld_emotion.core.results import DialogueXaiResult
 from meld_emotion.core.types import Emotion, Split
 from meld_emotion.data.media import MediaLoader as RawMediaLoader
-from meld_emotion.features.audio import Wav2Vec2XlsrAudioExtractor
-from meld_emotion.features.text import EmbeddingGemmaTextExtractor
-from meld_emotion.features.video import TimeSformerVideoExtractor
+from meld_emotion.explain.dialogue_finegrained import DialogueFineGrainedXaiExplainer
+from meld_emotion.features.audio import (
+    Wav2Vec2XlsrAudioExtractor,
+    Wav2Vec2XlsrAudioSequenceExtractor,
+)
+from meld_emotion.features.text import EmbeddingGemmaTextExtractor, TextTokenEmbeddingExtractor
+from meld_emotion.features.video import TimeSformerVideoExtractor, VideoFrameEmbeddingExtractor
 from meld_emotion.pipeline.cache import NullFeatureCache
 from meld_emotion.pipeline.feature_pipeline import FeaturePipeline, MediaLoader
 
@@ -33,6 +39,7 @@ class InferenceResult:
     top_k: tuple[tuple[Emotion, float], ...]
     checkpoint: str
     mp4_path: str
+    xai: tuple[DialogueXaiResult, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -44,6 +51,7 @@ class InferenceResult:
             ],
             "checkpoint": self.checkpoint,
             "mp4_path": self.mp4_path,
+            "xai": _jsonable(self.xai),
         }
 
 
@@ -57,6 +65,9 @@ def run_inference(
     extractors: Sequence[FeatureExtractor] | None = None,
     media_loader: MediaLoader | None = None,
     classifier: Classifier | None = None,
+    include_xai: bool = False,
+    xai_n_steps: int = 32,
+    xai_top_k: int = 10,
 ) -> InferenceResult:
     """MP4 경로와 발화 텍스트로 감정 확률을 예측한다.
 
@@ -75,10 +86,24 @@ def run_inference(
         raise FileNotFoundError(f"checkpoint 를 찾을 수 없습니다: {checkpoint}")
 
     sample = _sample_from_inputs(mp4, text)
+    chosen_extractors = (
+        extractors
+        if extractors is not None
+        else default_xai_extractors(resolved_device)
+        if include_xai
+        else default_extractors(resolved_device)
+    )
+    chosen_media_loader = (
+        media_loader
+        if media_loader is not None
+        else default_xai_media_loader()
+        if include_xai
+        else default_media_loader()
+    )
     pipeline = FeaturePipeline(
-        extractors if extractors is not None else default_extractors(resolved_device),
+        chosen_extractors,
         cache=NullFeatureCache(),
-        media_loader=media_loader if media_loader is not None else default_media_loader(),
+        media_loader=chosen_media_loader,
         media_error_policy="raise",
     )
     bundle = pipeline.fit_transform((sample,), Split.TEST)
@@ -95,6 +120,7 @@ def run_inference(
         sorted(scores.items(), key=lambda item: item[1], reverse=True)[: min(top_k, len(scores))]
     )
     label, probability = top[0]
+    xai = _run_xai(model, bundle, xai_n_steps, xai_top_k) if include_xai else ()
     return InferenceResult(
         label=label,
         probability=probability,
@@ -102,6 +128,7 @@ def run_inference(
         top_k=top,
         checkpoint=str(checkpoint),
         mp4_path=str(mp4),
+        xai=xai,
     )
 
 
@@ -162,10 +189,53 @@ def default_extractors(device: str) -> tuple[FeatureExtractor, ...]:
     )
 
 
+def default_xai_extractors(device: str) -> tuple[FeatureExtractor, ...]:
+    """Fine-grained inference/XAI extractor 조합."""
+
+    return (
+        TextTokenEmbeddingExtractor(
+            model_name="bert-base-uncased",
+            max_tokens=64,
+            output_dim=768,
+            batch_size=16,
+            normalize=True,
+            device=device,
+        ),
+        Wav2Vec2XlsrAudioSequenceExtractor(
+            model_name="facebook/wav2vec2-xls-r-300m",
+            output_dim=1024,
+            batch_size=1,
+            sampling_rate=16000,
+            max_steps=128,
+            normalize=True,
+            device=device,
+        ),
+        VideoFrameEmbeddingExtractor(
+            model_name="openai/clip-vit-base-patch32",
+            output_dim=768,
+            batch_size=8,
+            num_frames=16,
+            frame_size=224,
+            normalize=True,
+            device=device,
+        ),
+    )
+
+
 def default_media_loader() -> MediaLoader:
     return RawMediaLoader(
         audio_sample_rate=16000,
         video_max_frames=8,
+        video_frame_size=(224, 224),
+        max_audio_seconds=60.0,
+        min_audio_seconds=0.025,
+    )
+
+
+def default_xai_media_loader() -> MediaLoader:
+    return RawMediaLoader(
+        audio_sample_rate=16000,
+        video_max_frames=16,
         video_frame_size=(224, 224),
         max_audio_seconds=60.0,
         min_audio_seconds=0.025,
@@ -181,11 +251,69 @@ def format_inference_result(result: InferenceResult) -> str:
         "top_k:",
     ]
     lines.extend(f"  {label.value}: {score:.6f}" for label, score in result.top_k)
+    if result.xai:
+        lines.append("xai:")
+        for item in result.xai:
+            top_modality = max(item.modality, key=lambda modality: modality.attribution_share)
+            top_utt = item.utterances[0] if item.utterances else None
+            text = item.top_text_units[0].label if item.top_text_units else "-"
+            audio = item.top_audio_units[0].label if item.top_audio_units else "-"
+            video = item.top_video_units[0].label if item.top_video_units else "-"
+            source = (
+                f"utt={top_utt.utterance_id} share={top_utt.share:.2f}"
+                if top_utt is not None
+                else "utt=-"
+            )
+            lines.append(
+                "  "
+                f"{item.uid} target={item.target_class.value} "
+                f"mod={top_modality.modality.value}:{top_modality.attribution_share:.2f} "
+                f"{source}"
+            )
+            lines.append(f"    text: {text}")
+            lines.append(f"    audio: {audio}")
+            lines.append(f"    video: {video}")
     return "\n".join(lines)
 
 
 def result_to_json(result: InferenceResult) -> str:
     return json.dumps(result.to_dict(), ensure_ascii=False, indent=2)
+
+
+def inference_dashboard_payload(result: InferenceResult) -> dict[str, object]:
+    """단일 inference 결과용 dashboard JSON payload."""
+
+    return {
+        "prediction": result.to_dict(),
+        "finegrained_xai": {
+            "targets": [
+                {
+                    "uid": item.uid,
+                    "speaker": item.speaker,
+                    "pred_class": item.pred_class.value,
+                    "pred_proba": item.pred_proba,
+                    "target_class": item.target_class.value,
+                    "target_logit": item.target_logit,
+                    "modality_panel": _jsonable(item.modality),
+                    "dialogue_panel": _jsonable(item.utterances),
+                    "block_panel": _jsonable(item.classifier_blocks),
+                    "text_panel": _jsonable(item.top_text_units),
+                    "audio_panel": _jsonable(item.top_audio_units),
+                    "video_panel": _jsonable(item.top_video_units),
+                    "dimension_panel": {
+                        "text": _jsonable(item.text_dimension_attribution),
+                        "audio": _jsonable(item.audio_dimension_attribution),
+                        "video": _jsonable(item.video_dimension_attribution),
+                    },
+                }
+                for item in result.xai
+            ]
+        },
+    }
+
+
+def dashboard_to_json(result: InferenceResult) -> str:
+    return json.dumps(inference_dashboard_payload(result), ensure_ascii=False, indent=2)
 
 
 def _sample_from_inputs(mp4: Path, text: str) -> RawSample:
@@ -208,3 +336,46 @@ def _load_classifier(checkpoint: Path, device: str) -> Classifier:
     from meld_emotion.models.dialogue_rnn import TorchDialogueEmotionClassifier
 
     return TorchDialogueEmotionClassifier.from_checkpoint(checkpoint, device=device)
+
+
+def _run_xai(
+    model: Classifier,
+    bundle: object,
+    n_steps: int,
+    top_k: int,
+) -> tuple[DialogueXaiResult, ...]:
+    from meld_emotion.core.features import FeatureBundle
+
+    if not isinstance(bundle, FeatureBundle):
+        raise TypeError("bundle must be FeatureBundle")
+    explainer = DialogueFineGrainedXaiExplainer(
+        n_steps=n_steps,
+        top_k=top_k,
+        max_targets=1,
+        target="predicted",
+    )
+    report = explainer.explain(model, bundle, _dummy_labels(bundle.n_samples))
+    return report.dialogue_xai
+
+
+def _dummy_labels(n: int) -> Any:
+    try:
+        numpy: Any = import_module("numpy")
+    except ImportError as exc:  # pragma: no cover - numpy is a base dependency
+        raise RuntimeError("numpy is required for inference XAI") from exc
+    return numpy.zeros(n, dtype=numpy.int64)
+
+
+def _jsonable(obj: object) -> object:
+    if is_dataclass(obj) and not isinstance(obj, type):
+        return {field.name: _jsonable(getattr(obj, field.name)) for field in fields(obj)}
+    if isinstance(obj, Enum):
+        return obj.value
+    if isinstance(obj, Mapping):
+        return {
+            (key.value if isinstance(key, Enum) else str(key)): _jsonable(value)
+            for key, value in obj.items()
+        }
+    if isinstance(obj, tuple | list):
+        return [_jsonable(value) for value in obj]
+    return obj

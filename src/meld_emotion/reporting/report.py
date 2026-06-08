@@ -101,6 +101,28 @@ class ConsoleReporter:
                 lines.append("[Top feature contributions]")
                 for fc in explanation.feature_contributions[:8]:
                     lines.append(f"  {fc.modality.value:6} {fc.name:24} imp={fc.importance:+.3f}")
+            if explanation.dialogue_xai:
+                lines.append("[Fine-grained dialogue XAI]")
+                for item in explanation.dialogue_xai[:5]:
+                    top_modality = max(
+                        item.modality,
+                        key=lambda modality: modality.attribution_share,
+                    )
+                    top_utt = item.utterances[0] if item.utterances else None
+                    text = item.top_text_units[0].label if item.top_text_units else "-"
+                    audio = item.top_audio_units[0].label if item.top_audio_units else "-"
+                    video = item.top_video_units[0].label if item.top_video_units else "-"
+                    source = (
+                        f"utt={top_utt.utterance_id} share={top_utt.share:.2f}"
+                        if top_utt is not None
+                        else "utt=-"
+                    )
+                    lines.append(
+                        "  "
+                        f"{item.uid} pred={item.pred_class.value} "
+                        f"mod={top_modality.modality.value}:{top_modality.attribution_share:.2f} "
+                        f"{source} text={text} audio={audio} video={video}"
+                    )
         return "\n".join(lines)
 
     @staticmethod
@@ -126,10 +148,41 @@ class DashboardExporter:
             "counterfactuals": _jsonable(
                 result.explanation.counterfactuals if result.explanation else ()
             ),
+            "finegrained_xai": _dashboard_xai(result),
         }
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         logger.info("대시보드 데이터 저장 완료: path=%s", self._path)
+
+
+def _dashboard_xai(result: ExperimentResult) -> dict[str, Any]:
+    explanation = result.explanation
+    if explanation is None or not explanation.dialogue_xai:
+        return {"targets": []}
+    targets = []
+    for item in explanation.dialogue_xai:
+        targets.append(
+            {
+                "uid": item.uid,
+                "speaker": item.speaker,
+                "pred_class": item.pred_class.value,
+                "pred_proba": item.pred_proba,
+                "target_class": item.target_class.value,
+                "target_logit": item.target_logit,
+                "modality_panel": _jsonable(item.modality),
+                "dialogue_panel": _jsonable(item.utterances),
+                "block_panel": _jsonable(item.classifier_blocks),
+                "text_panel": _jsonable(item.top_text_units),
+                "audio_panel": _jsonable(item.top_audio_units),
+                "video_panel": _jsonable(item.top_video_units),
+                "dimension_panel": {
+                    "text": _jsonable(item.text_dimension_attribution),
+                    "audio": _jsonable(item.audio_dimension_attribution),
+                    "video": _jsonable(item.video_dimension_attribution),
+                },
+            }
+        )
+    return {"targets": targets}
 
 
 def _render_table(headers: Sequence[str], rows: Sequence[Sequence[str]]) -> list[str]:

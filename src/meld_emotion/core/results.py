@@ -107,12 +107,74 @@ class CounterfactualResult:
 
 
 @dataclass(frozen=True)
+class UnitAttribution:
+    """Token/audio span/video frame 같은 fine-grained unit 중요도."""
+
+    label: str
+    score: float
+    index: int
+    start: float | None = None
+    end: float | None = None
+    char_start: int | None = None
+    char_end: int | None = None
+    available: bool = True
+
+
+@dataclass(frozen=True)
+class UtteranceAttribution:
+    """Target 예측에 기여한 source utterance."""
+
+    uid: UID
+    dialogue_id: int
+    utterance_id: int
+    speaker: str
+    score: float
+    share: float
+    memory_attention: float | None = None
+
+
+@dataclass(frozen=True)
+class ModalityXaiSummary:
+    """한 모달리티의 gate/attribution/ablation 요약."""
+
+    modality: Modality
+    available: bool
+    gate: float | None
+    attribution_share: float
+    ablation_delta_logit: float | None = None
+
+
+@dataclass(frozen=True)
+class DialogueXaiResult:
+    """Dialogue RNN fine-grained XAI 결과(utterance target 1개 단위)."""
+
+    uid: UID
+    dialogue_id: int
+    utterance_id: int
+    speaker: str
+    pred_class: Emotion
+    pred_proba: float
+    target_class: Emotion
+    target_logit: float
+    modality: tuple[ModalityXaiSummary, ...]
+    utterances: tuple[UtteranceAttribution, ...]
+    classifier_blocks: Mapping[str, float]
+    top_text_units: tuple[UnitAttribution, ...] = ()
+    top_audio_units: tuple[UnitAttribution, ...] = ()
+    top_video_units: tuple[UnitAttribution, ...] = ()
+    text_dimension_attribution: tuple[UnitAttribution, ...] = ()
+    audio_dimension_attribution: tuple[UnitAttribution, ...] = ()
+    video_dimension_attribution: tuple[UnitAttribution, ...] = ()
+
+
+@dataclass(frozen=True)
 class ExplanationReport:
     """설명 단계의 종합 결과."""
 
     feature_contributions: tuple[FeatureContribution, ...] = ()
     modality_contributions: tuple[ModalityContribution, ...] = ()
     counterfactuals: tuple[CounterfactualResult, ...] = ()
+    dialogue_xai: tuple[DialogueXaiResult, ...] = ()
 
 
 @dataclass(frozen=True)

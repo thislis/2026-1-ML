@@ -8,7 +8,8 @@
 - `types.py` — 열거형(`Modality`, `Emotion`, `Sentiment`, `Split`, `FeatureKind`), 배열 별칭
   (`FloatArray`/`IntArray`/`BoolArray`), 표준 순서(`EMOTION_ORDER`, `MODALITY_ORDER`).
 - `data.py` — 원천 입력 dataclass: `RawSample`, `AudioInput`, `VideoInput`, `ModalityMask`.
-- `features.py` — `FeatureMatrix`(추출기 1개 출력), `FeatureBundle`(분할 전체 멀티모달 묶음,
+- `features.py` — `FeatureMatrix`(추출기 1개 2D 출력), `SequenceFeatureMatrix`(token/span/frame
+  단위 3D 출력), `FeatureUnit`, `FeatureBundle`(분할 전체 멀티모달 묶음,
   `stack`/`embedding_matrix`/`concept_vector`/`select` 헬퍼), `StackedFeatures`/`ColumnSpec`,
   `UtteranceSpec`(dialogue_id/utterance_id/speaker 보존).
 - `results.py` — 산출물: `PredictionSet`, `MetricResult`, `EvaluationReport`, `RobustnessReport`,
@@ -27,12 +28,15 @@
   fit/transform 간 열 순서가 동일하게 유지된다.
 - `FeatureBundle.utterances` 는 기본값이 빈 튜플인 호환 필드다. `FeaturePipeline` 이 채우며,
   dialogue-level 모델이 발화 행을 `[B,N]` dialogue batch 로 재구성할 때 사용한다.
+- `FeatureBundle.sequence_matrices` 는 fine-grained XAI 용 호환 필드다. 기존 2D
+  `FeatureMatrix` 기반 early/late fusion 은 그대로 동작하고, `dialogue_rnn` 은 sequence 특징이
+  있으면 `[B,N,L,D]` 입력을 우선 사용한다.
 - `Estimator` 는 평범한 행렬(X, y)을, `Classifier` 는 `FeatureBundle` 을 다룬다(ISP).
-- 현재 상태 기준 `REAL 44`, `PLACEHOLDER 7`, `UNIMPLEMENTED 0` 이며, placeholder 는 실제 사용 시
+- 현재 상태 기준 `REAL 49`, `PLACEHOLDER 7`, `UNIMPLEMENTED 0` 이며, placeholder 는 실제 사용 시
   경고를 내거나 상태표에 사유를 표시한다.
   현재 REAL 구현에는 MELD raw/metadata loader, raw media loader, EmbeddingGemma/Wav2Vec2
-  XLS-R/TimeSformer/VideoPrism extractor, sklearn/XGBoost baseline, dialogue RNN, suite runner,
-  console/JSON/comparison reporter 가 포함된다.
+  XLS-R/TimeSformer/VideoPrism extractor, fine-grained sequence extractor, sklearn/XGBoost
+  baseline, dialogue RNN, suite runner, console/JSON/comparison reporter 가 포함된다.
 
 ## 바꿀 일이 생기면
 

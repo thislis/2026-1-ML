@@ -91,6 +91,7 @@ class CounterfactualExplainer:
         return FeatureBundle(
             uids=one_row.uids,
             matrices=rebuilt,
+            sequence_matrices=one_row.sequence_matrices,
             availability=one_row.availability,
             utterances=one_row.utterances,
         )

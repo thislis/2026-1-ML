@@ -68,6 +68,87 @@ class FeatureMatrix:
 
 
 @dataclass(frozen=True)
+class FeatureUnit:
+    """Sequence feature 의 한 위치(token/span/frame)를 사람이 읽을 수 있게 설명한다."""
+
+    label: str
+    index: int
+    start: float | None = None
+    end: float | None = None
+    char_start: int | None = None
+    char_end: int | None = None
+
+
+@dataclass(frozen=True, eq=False)
+class SequenceFeatureMatrix:
+    """한 추출기가 산출한 발화 내부 sequence 특징.
+
+    ``values`` 는 (n_samples, max_len, feature_dim), ``mask`` 는 실제 unit 위치를 나타내는
+    (n_samples, max_len) 불리언 배열이다. ``units`` 는 각 row 의 유효 위치 metadata 를 담는다.
+    """
+
+    values: FloatArray
+    mask: BoolArray
+    units: tuple[tuple[FeatureUnit, ...], ...]
+    names: tuple[str, ...]
+    modality: Modality
+    kind: FeatureKind
+    source: str = ""
+
+    def __post_init__(self) -> None:
+        if self.values.ndim != 3:
+            raise ValueError(
+                "SequenceFeatureMatrix.values 는 3차원이어야 합니다 "
+                f"(got ndim={self.values.ndim})"
+            )
+        if self.mask.shape != self.values.shape[:2]:
+            raise ValueError(
+                "SequenceFeatureMatrix.mask 형상은 values 앞 두 축과 일치해야 합니다: "
+                f"{self.mask.shape} != {self.values.shape[:2]}"
+            )
+        if len(self.units) != self.values.shape[0]:
+            raise ValueError(
+                "units row 수는 values sample 수와 일치해야 합니다: "
+                f"{len(self.units)} != {self.values.shape[0]}"
+            )
+        if len(self.names) != self.values.shape[2]:
+            raise ValueError(
+                "feature dim 과 names 길이가 일치하지 않습니다: "
+                f"{self.values.shape[2]} != {len(self.names)}"
+            )
+        max_len = self.values.shape[1]
+        for row, row_units in enumerate(self.units):
+            if len(row_units) > max_len:
+                raise ValueError(
+                    f"units[{row}] 길이는 max_len 을 넘을 수 없습니다: {len(row_units)} > {max_len}"
+                )
+
+    @property
+    def n_samples(self) -> int:
+        return int(self.values.shape[0])
+
+    @property
+    def sequence_length(self) -> int:
+        return int(self.values.shape[1])
+
+    @property
+    def n_features(self) -> int:
+        return int(self.values.shape[2])
+
+    def select(self, rows: Sequence[int] | BoolArray) -> SequenceFeatureMatrix:
+        idx = np.asarray(rows)
+        return SequenceFeatureMatrix(
+            values=np.asarray(self.values[idx], dtype=np.float64),
+            mask=np.asarray(self.mask[idx], dtype=bool),
+            units=tuple(np.asarray(self.units, dtype=object)[idx].tolist()),
+            names=self.names,
+            modality=self.modality,
+            kind=self.kind,
+            source=self.source,
+        )
+
+
+@dataclass(frozen=True)
 class ColumnSpec:
     """스택된 설계 행렬에서 한 열의 출처(모달리티/종류/이름)."""
 
@@ -125,6 +206,7 @@ class FeatureBundle:
 
     uids: tuple[UID, ...]
     matrices: tuple[FeatureMatrix, ...]
+    sequence_matrices: tuple[SequenceFeatureMatrix, ...] = ()
     availability: Mapping[Modality, BoolArray] = field(default_factory=dict)
     utterances: tuple[UtteranceSpec, ...] = ()
 
@@ -134,6 +216,12 @@ class FeatureBundle:
                 "utterances 길이는 uids 길이와 일치해야 합니다: "
                 f"{len(self.utterances)} != {len(self.uids)}"
             )
+        for matrix in self.sequence_matrices:
+            if matrix.n_samples != len(self.uids):
+                raise ValueError(
+                    "sequence matrix sample 수는 uids 길이와 일치해야 합니다: "
+                    f"{matrix.n_samples} != {len(self.uids)}"
+                )
 
     @property
     def n_samples(self) -> int:
@@ -147,12 +235,16 @@ class FeatureBundle:
     def by_modality(self, modality: Modality) -> tuple[FeatureMatrix, ...]:
         return tuple(m for m in self.matrices if m.modality == modality)
 
+    def sequence_by_modality(self, modality: Modality) -> tuple[SequenceFeatureMatrix, ...]:
+        return tuple(m for m in self.sequence_matrices if m.modality == modality)
+
     def select(self, rows: Sequence[int] | BoolArray) -> FeatureBundle:
         """행(샘플) 부분집합을 선택한 새 묶음을 반환한다(설명 단계에서 사용)."""
 
         idx = np.asarray(rows)
         uids = tuple(str(u) for u in np.asarray(self.uids, dtype=object)[idx].tolist())
         matrices = tuple(m.select(rows) for m in self.matrices)
+        sequence_matrices = tuple(m.select(rows) for m in self.sequence_matrices)
         availability = {mod: avail[idx] for mod, avail in self.availability.items()}
         utterances = tuple(
             np.asarray(self.utterances, dtype=object)[idx].tolist()
@@ -160,6 +252,7 @@ class FeatureBundle:
         return FeatureBundle(
             uids=uids,
             matrices=matrices,
+            sequence_matrices=sequence_matrices,
             availability=availability,
             utterances=utterances,
         )

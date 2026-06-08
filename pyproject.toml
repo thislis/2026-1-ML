@@ -24,7 +24,8 @@ video = [
 ]
 xgboost = ["xgboost>=2.0"]
 deep = ["torch>=2.2"]
-all = ["meld-emotion[text,audio,video,xgboost,deep]"]
+xai = ["captum>=0.7"]
+all = ["meld-emotion[text,audio,video,xgboost,deep,xai]"]
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",

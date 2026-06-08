@@ -61,9 +61,9 @@
 
 - 설치: `uv sync --extra deep`.
 - 예제: `configs/example_meld_dialogue_rnn.yaml`.
-- 기존 feature extractor 출력은 발화별 single vector 이므로 wrapper 가 sequence length 1인
-  `[B,N,1,D]` 로 변환한다. 향후 sequence extractor 를 추가해도 모델 forward 는 `[B,N,L,D]`
-  형태를 유지한다.
+- 기존 pooled feature extractor 출력은 발화별 single vector 이므로 wrapper 가 sequence length 1인
+  `[B,N,1,D]` 로 변환한다. `SequenceFeatureMatrix` 를 내는 fine-grained extractor 가 있으면
+  wrapper 는 `[B,N,L,D]` 와 `[B,N,L]` mask 를 그대로 사용한다.
 - `modality_encoder.*_input_dim` 은 기본 `0` 이며, 이때 train bundle 의 실제 특징 차원을 자동
   추론한다. 값을 명시하면 실제 차원과 일치해야 한다.
 - 기본 구조는 Text/Audio/Video GRU encoder → attention pooling → gated fusion → speaker
@@ -71,6 +71,9 @@
   RoPE off) → utterance classifier 이다.
 - 입력 feature 차원이 설정값과 다르면 adapter 가 train bundle 기준으로 자동 추론하거나,
   명시 차원과 실제 차원이 충돌할 때 오류를 낸다.
+- `return_xai=True` forward 는 `modality_gate`, encoder attention, `memory_attention`,
+  `u_text/u_audio/u_video`, `fused`, `context_h`, `memory` 를 반환한다. `dialogue_finegrained_xai`
+  설명기는 이 값들과 Captum attribution, block ablation 을 함께 저장한다.
 - `training.best_checkpoint_path` 를 지정하면 weighted F1 기준 최고 모델을 저장한다. 추론 시에는
   checkpoint 의 `dims` 와 입력 extractor 출력 차원이 같아야 한다.
 

@@ -1,0 +1,53 @@
+name: finegrained_xai_synthetic
+dataset:
+  type: synthetic
+  n_train: 42
+  n_dev: 0
+  n_test: 14
+  seed: 7
+
+extractors:
+  - type: text_token_embeddings
+    model_name: bert-base-uncased
+    max_tokens: 64
+    output_dim: 768
+    batch_size: 16
+
+  - type: audio_wav2vec2_xlsr_sequence
+    model_name: facebook/wav2vec2-xls-r-300m
+    max_steps: 128
+    output_dim: 1024
+    sampling_rate: 16000
+
+  - type: video_frame_embeddings
+    model_name: openai/clip-vit-base-patch32
+    num_frames: 16
+    output_dim: 768
+
+model:
+  type: dialogue_rnn
+  training:
+    max_epochs: 2
+    batch_size: 2
+    validation_fraction: 0.0
+    modality_dropout: 0.0
+
+evaluation:
+  metrics: [accuracy, macro_f1, weighted_f1]
+  confusion: false
+  scenarios: [full]
+
+explainers:
+  - type: dialogue_finegrained_xai
+    method: integrated_gradients
+    n_steps: 32
+    top_k: 10
+    max_targets: 8
+    target: predicted
+
+reporters:
+  - type: console
+  - type: json
+    path: outputs/finegrained_xai.json
+  - type: dashboard
+    path: outputs/finegrained_xai_dashboard.json

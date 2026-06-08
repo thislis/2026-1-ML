@@ -12,7 +12,7 @@ from collections.abc import Iterable, Sequence
 from typing import Protocol, Self, runtime_checkable
 
 from meld_emotion.core.data import RawSample
-from meld_emotion.core.features import FeatureBundle, FeatureMatrix
+from meld_emotion.core.features import FeatureBundle, FeatureMatrix, SequenceFeatureMatrix
 from meld_emotion.core.results import (
     EvaluationReport,
     ExperimentResult,
@@ -76,6 +76,14 @@ class FeatureExtractor(Protocol):
 
     def transform(self, samples: Sequence[RawSample]) -> FeatureMatrix:
         """샘플들을 특징 행렬로 변환한다."""
+
+
+@runtime_checkable
+class SequenceFeatureExtractor(FeatureExtractor, Protocol):
+    """발화 내부 token/span/frame sequence 특징도 제공하는 추출기."""
+
+    def transform_sequence(self, samples: Sequence[RawSample]) -> SequenceFeatureMatrix:
+        """샘플들을 (n_samples, max_len, feature_dim) sequence 특징으로 변환한다."""
 
 
 @runtime_checkable

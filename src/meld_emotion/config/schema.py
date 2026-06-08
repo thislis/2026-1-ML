@@ -110,6 +110,17 @@ class EmbeddingGemmaTextConfig(ExtractorConfig):
 
 
 @dataclass(frozen=True)
+class TextTokenEmbeddingConfig(ExtractorConfig):
+    type: ClassVar[str] = "text_token_embeddings"
+    model_name: str = "bert-base-uncased"
+    max_tokens: int = 64
+    output_dim: int = 768
+    batch_size: int = 16
+    normalize: bool = True
+    device: str | None = None
+
+
+@dataclass(frozen=True)
 class AudioConceptConfig(ExtractorConfig):
     type: ClassVar[str] = "audio_concepts"
 
@@ -129,6 +140,19 @@ class Wav2Vec2XlsrAudioConfig(ExtractorConfig):
     sampling_rate: int = 16000
     max_seconds: float | None = None
     chunk_seconds: float | None = 30.0
+    normalize: bool = True
+    device: str | None = None
+
+
+@dataclass(frozen=True)
+class Wav2Vec2XlsrAudioSequenceConfig(ExtractorConfig):
+    type: ClassVar[str] = "audio_wav2vec2_xlsr_sequence"
+    model_name: str = "facebook/wav2vec2-xls-r-300m"
+    output_dim: int = 1024
+    batch_size: int = 4
+    sampling_rate: int = 16000
+    max_seconds: float | None = None
+    max_steps: int = 128
     normalize: bool = True
     device: str | None = None
 
@@ -169,6 +193,18 @@ class VideoPrismConfig(ExtractorConfig):
 
 
 @dataclass(frozen=True)
+class VideoFrameEmbeddingConfig(ExtractorConfig):
+    type: ClassVar[str] = "video_frame_embeddings"
+    model_name: str = "openai/clip-vit-base-patch32"
+    output_dim: int = 768
+    batch_size: int = 8
+    num_frames: int = 16
+    frame_size: int = 224
+    normalize: bool = True
+    device: str | None = None
+
+
+@dataclass(frozen=True)
 class PrecomputedMeldFeatureConfig(ExtractorConfig):
     type: ClassVar[str] = "meld_precomputed"
     path: str = ""
@@ -183,13 +219,16 @@ for _ec in (
     TfidfConfig,
     SentenceEmbeddingConfig,
     EmbeddingGemmaTextConfig,
+    TextTokenEmbeddingConfig,
     AudioConceptConfig,
     MfccConfig,
     Wav2Vec2XlsrAudioConfig,
+    Wav2Vec2XlsrAudioSequenceConfig,
     VideoConceptConfig,
     VisualCueConfig,
     TimeSformerVideoConfig,
     VideoPrismConfig,
+    VideoFrameEmbeddingConfig,
     PrecomputedMeldFeatureConfig,
 ):
     EXTRACTOR_CONFIGS.add(_ec.type, _ec)
@@ -462,7 +501,22 @@ class CounterfactualConfig(ExplainerConfig):
     sample_limit: int = 20
 
 
-for _xc in (PermutationConfig, ModalityAblationConfig, CounterfactualConfig):
+@dataclass(frozen=True)
+class DialogueFineGrainedXaiConfig(ExplainerConfig):
+    type: ClassVar[str] = "dialogue_finegrained_xai"
+    method: str = "integrated_gradients"
+    n_steps: int = 32
+    top_k: int = 10
+    max_targets: int = 32
+    target: str = "predicted"
+
+
+for _xc in (
+    PermutationConfig,
+    ModalityAblationConfig,
+    CounterfactualConfig,
+    DialogueFineGrainedXaiConfig,
+):
     EXPLAINER_CONFIGS.add(_xc.type, _xc)
 
 

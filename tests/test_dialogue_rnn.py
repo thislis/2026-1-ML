@@ -154,6 +154,86 @@ checkpoint_dir.cleanup()
     )
 
 
+def test_dialogue_rnn_accepts_sequence_bundle_in_subprocess() -> None:
+    _run_torch_snippet(
+        """
+import numpy as np
+
+from meld_emotion.config.schema import (
+    ClassifierHeadSettings,
+    DialogueContextSettings,
+    DialogueRnnConfig,
+    DialogueTrainingSettings,
+    FusionSettings,
+    MemoryAttentionSettings,
+    ModalityEncoderSettings,
+)
+from meld_emotion.core.features import FeatureBundle, FeatureUnit, SequenceFeatureMatrix, UtteranceSpec
+from meld_emotion.core.types import FeatureKind, Modality
+from meld_emotion.models.dialogue_rnn import TorchDialogueEmotionClassifier
+
+def seq(modality, base):
+    values = np.full((4, 3, 2), base, dtype=np.float64)
+    mask = np.array([[1, 1, 0], [1, 1, 1], [1, 0, 0], [1, 1, 0]], dtype=bool)
+    units = tuple(
+        tuple(FeatureUnit(f"{modality.value}_{row}_{i}", i) for i in range(int(mask[row].sum())))
+        for row in range(4)
+    )
+    return SequenceFeatureMatrix(
+        values=values,
+        mask=mask,
+        units=units,
+        names=("d0", "d1"),
+        modality=modality,
+        kind=FeatureKind.EMBEDDING,
+    )
+
+bundle = FeatureBundle(
+    uids=("d0/u0", "d0/u1", "d1/u0", "d1/u1"),
+    matrices=(),
+    sequence_matrices=(
+        seq(Modality.TEXT, 1.0),
+        seq(Modality.AUDIO, 2.0),
+        seq(Modality.VIDEO, 3.0),
+    ),
+    availability={
+        Modality.TEXT: np.ones(4, dtype=bool),
+        Modality.AUDIO: np.ones(4, dtype=bool),
+        Modality.VIDEO: np.ones(4, dtype=bool),
+    },
+    utterances=(
+        UtteranceSpec("d0/u0", 0, 0, "A"),
+        UtteranceSpec("d0/u1", 0, 1, "B"),
+        UtteranceSpec("d1/u0", 1, 0, "A"),
+        UtteranceSpec("d1/u1", 1, 1, "B"),
+    ),
+)
+config = DialogueRnnConfig(
+    modality_encoder=ModalityEncoderSettings(proj_dim=4, hidden_dim=5, dropout=0.0),
+    fusion=FusionSettings(fusion_dim=6, dropout=0.0),
+    dialogue_context=DialogueContextSettings(hidden_dim=7, dropout=0.0),
+    memory_attention=MemoryAttentionSettings(attn_dim=7),
+    classifier=ClassifierHeadSettings(hidden_dim=8, dropout=0.0),
+    training=DialogueTrainingSettings(
+        max_epochs=1,
+        batch_size=2,
+        validation_fraction=0.0,
+        modality_dropout=0.0,
+        seed=0,
+    ),
+)
+classifier = TorchDialogueEmotionClassifier(config)
+classifier.fit(bundle, np.array([0, 1, 2, 3], dtype=np.int64))
+arrays = classifier.xai_arrays(bundle)
+assert arrays.text_x.shape == (2, 2, 3, 2)
+assert arrays.audio_x.shape == (2, 2, 3, 2)
+assert arrays.video_x.shape == (2, 2, 3, 2)
+proba = classifier.predict_proba(bundle)
+assert proba.shape == (4, 7)
+"""
+    )
+
+
 def test_dialogue_rnn_config_roundtrip() -> None:
     config = ExperimentConfig(
         name="dialogue",

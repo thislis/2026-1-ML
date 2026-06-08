@@ -8,11 +8,13 @@
 from __future__ import annotations
 
 from meld_emotion.explain.counterfactual import CounterfactualExplainer
+from meld_emotion.explain.dialogue_finegrained import DialogueFineGrainedXaiExplainer
 from meld_emotion.explain.modality_contribution import ModalityAblationExplainer
 from meld_emotion.explain.permutation import PermutationImportanceExplainer
 
 __all__ = [
     "CounterfactualExplainer",
+    "DialogueFineGrainedXaiExplainer",
     "ModalityAblationExplainer",
     "PermutationImportanceExplainer",
 ]

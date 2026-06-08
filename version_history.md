@@ -2,11 +2,11 @@
 
 ## current_code_sync
 
-현재 코드 기준 구현 상태는 `uv run meld-emotion status` 로 확인되며, 전체 51개 컴포넌트 중
-REAL 44개, PLACEHOLDER 7개, UNIMPLEMENTED 0개다. REAL 구현에는 MELD CSV/metadata loader,
+현재 코드 기준 구현 상태는 `uv run meld-emotion status` 로 확인되며, 전체 56개 컴포넌트 중
+REAL 49개, PLACEHOLDER 7개, UNIMPLEMENTED 0개다. REAL 구현에는 MELD CSV/metadata loader,
 raw MP4 audio/video lazy loader, EmbeddingGemma/Wav2Vec2 XLS-R/TimeSformer/VideoPrism extractor,
-sklearn/XGBoost baseline, dialogue-level PyTorch classifier, suite runner, console/JSON/comparison
-reporter 가 포함된다.
+fine-grained sequence extractor, sklearn/XGBoost baseline, dialogue-level PyTorch classifier,
+suite runner, console/JSON/comparison reporter 가 포함된다.
 
 세 foundation embedding 을 모두 쓰는 최신 raw MELD 비교 설정은 다음이다.
 
@@ -31,6 +31,65 @@ uv run meld-emotion compare --config configs/all_model_w_all_features.yaml
 suite runner 는 dataset/extractors/media/train split/eval split signature 가 같은 실험끼리
 `InMemoryFeatureCache` 를 공유한다. 따라서 같은 suite 안의 foundation feature 는 가능한 한
 재사용된다. 다만 `DiskFeatureCache` 는 아직 실행 간 영속화가 아니라 인메모리 위임 placeholder 다.
+
+## finegrained_xai_v1
+
+`finegrained_xai_v1` 은 `dialogue_rnn` 에서 발화 단위 pooled embedding 보다 아래로 내려가,
+단어/token, 오디오 시간 구간, 비디오 프레임 단위 XAI 를 저장하는 버전이다. 기존
+`FeatureMatrix (n,D)` 는 유지하고, `SequenceFeatureMatrix (n,L,D)` 와 `FeatureUnit` 을 추가해
+`FeatureBundle.sequence_matrices` 로 sequence 특징을 전달한다.
+
+새 extractor 는 다음 세 가지다.
+
+| type | 역할 |
+| --- | --- |
+| `text_token_embeddings` | Hugging Face tokenizer/model 로 token embedding 과 character span 보존 |
+| `audio_wav2vec2_xlsr_sequence` | Wav2Vec2 XLS-R `last_hidden_state` 를 시간 step별 embedding 으로 보존 |
+| `video_frame_embeddings` | CLIP vision model 로 sampled frame별 embedding 생성 |
+
+`TorchDialogueEmotionClassifier` 는 sequence feature 가 있으면 `[B,N,L,D]` 와 `[B,N,L]` mask 를
+사용하고, 없으면 기존처럼 `[B,N,1,D]` 로 fallback 한다. 모델 forward 에 `return_xai=True` 를
+추가해 `modality_gate`, encoder attention, `memory_attention`, `u_text/u_audio/u_video`, `fused`,
+`context_h`, `memory` 를 반환한다. classifier head 에 들어가는 `fused/context/memory` block 은
+block ablation 으로 target logit 변화량을 계산할 수 있다.
+
+새 설명기 `dialogue_finegrained_xai` 는 Captum Integrated Gradients 로 target
+`logits[b,t,c]` attribution 을 계산하고, 같은 attribution tensor 를 다음 해상도로 집계한다.
+
+- token/audio-span/video-frame top-k
+- source utterance importance + `memory_attention`
+- modality attribution share + modality logit ablation delta + `modality_gate`
+- `fused/context/memory` block importance
+- text/audio/video embedding dimension attribution
+
+출력은 JSON, console 요약, dashboard data contract 를 모두 지원한다. 실제 HTML dashboard 렌더링은
+아직 placeholder 이며, dashboard exporter 는 frontend 가 사용할 수 있는 JSON payload 를 저장한다.
+예제 설정은 다음이다.
+
+```bash
+uv sync --extra text --extra audio --extra video --extra deep --extra xai
+uv run meld-emotion run --config configs/example_finegrained_xai.yaml
+```
+
+자세한 해석 방법과 dashboard payload 는 `docs/finegrained_xai.md` 에 정리했다.
+
+단일 inference 경로도 fine-grained XAI 를 지원한다. `meld-emotion infer --xai` 는 기본 pooled
+extractor 대신 sequence extractor 조합을 사용하고, 감정 분류 결과와 함께 XAI 결과를 console 또는
+JSON 으로 출력한다. `--xai-dashboard <path>` 를 지정하면 단일 입력용 dashboard payload 도 저장한다.
+
+### finegrained_xai_v2_candidates
+
+다음 항목은 v2 에서 구현해야 하거나 구현하면 좋은 사항이다.
+
+- EmbeddingGemma/TimeSformer/VideoPrism 내부 token-patch representation 을 직접 노출하는 extractor.
+- 비디오 영역/얼굴 부위 heatmap: patch-level attribution, Grad-CAM, face landmark/region attribution.
+- raw occlusion XAI: 단어 삭제, waveform 구간 무음화, frame 제거 후 feature 재추출.
+- SHAP/LIME 계열 group explanation: modality group, utterance group, token/span/frame group.
+- Dashboard HTML/UI 렌더링: heatmap, timeline, dialogue graph, modality/block comparison view.
+- Captum method 확장: GradientSHAP, DeepLIFT, Layer Integrated Gradients.
+- Dataset mean / silence / blank frame baseline 선택 옵션.
+- XAI cache: 비싼 attribution 결과를 target/model/checkpoint/config signature 기준으로 저장.
+- End-to-end raw input wrapper: extractor 와 classifier 를 묶어 원 입력 기준 attribution 충실도 개선.
 
 ## ours_v2
 

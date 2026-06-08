@@ -72,14 +72,15 @@ model:
 
 - 데이터셋: `synthetic`, `meld`
 - 특징: `text_concepts`, `text_bow`, `text_tfidf`, `text_embeddings`,
-  `text_embeddinggemma`, `audio_concepts`, `audio_mfcc`, `audio_wav2vec2_xlsr`,
-  `video_concepts`, `video_visual`, `video_timesformer`, `video_videoprism`,
+  `text_embeddinggemma`, `text_token_embeddings`, `audio_concepts`, `audio_mfcc`,
+  `audio_wav2vec2_xlsr`, `audio_wav2vec2_xlsr_sequence`, `video_concepts`,
+  `video_visual`, `video_timesformer`, `video_videoprism`, `video_frame_embeddings`,
   `meld_precomputed`
 - 모델: `early`, `late`, `dialogue_rnn`
 - 기초 학습기: `majority`, `random`, `centroid`, `linear_regression`, `svm`, `logreg`,
   `random_forest`, `knn`, `xgboost`
 - 결합기: `mean`, `weighted`, `stacking`
-- 설명기: `permutation`, `modality_ablation`, `counterfactual`
+- 설명기: `permutation`, `modality_ablation`, `counterfactual`, `dialogue_finegrained_xai`
 - 캐시: `memory`, `null`, `disk`
 - 리포터: `console`, `json`, `dashboard`
 
@@ -195,6 +196,31 @@ extractors:
 [configs/all_model_w_all_features.yaml](../../../configs/all_model_w_all_features.yaml) 이다. 이
 suite 는 `text_embeddinggemma`, `audio_wav2vec2_xlsr`, `video_timesformer` 를 함께 쓰고,
 `majority`/`random`/early-fusion baseline/`dialogue_rnn` 을 비교한다.
+
+Fine-grained dialogue XAI 는 sequence extractor 와 `dialogue_finegrained_xai` 설명기를 함께 쓴다.
+
+```yaml
+extractors:
+  - type: text_token_embeddings
+    model_name: bert-base-uncased
+    max_tokens: 64
+  - type: audio_wav2vec2_xlsr_sequence
+    max_steps: 128
+  - type: video_frame_embeddings
+    num_frames: 16
+model:
+  type: dialogue_rnn
+explainers:
+  - type: dialogue_finegrained_xai
+    n_steps: 32
+    top_k: 10
+    max_targets: 32
+reporters:
+  - type: json
+    path: outputs/finegrained_xai.json
+  - type: dashboard
+    path: outputs/finegrained_xai_dashboard.json
+```
 
 raw media 오류 처리는 `media.on_error` 로 조정한다. 기본값 `raise` 는 파일 누락/손상 시 실험을
 중단하고, `drop_modality` 는 해당 샘플의 해당 모달리티만 missing 으로 처리한다. `drop_sample`

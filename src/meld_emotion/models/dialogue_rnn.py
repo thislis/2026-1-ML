@@ -196,6 +196,24 @@ class TorchDialogueEmotionClassifier:
         y_pred = np.argmax(proba, axis=1).astype(np.int64)
         return PredictionSet(uids=bundle.uids, y_pred=y_pred, proba=proba, classes=self._classes)
 
+    def xai_arrays(self, bundle: FeatureBundle) -> _DialogueArrays:
+        """Build dialogue tensors for explainers without labels."""
+
+        self._require_model()
+        return self._build_arrays(bundle, None)
+
+    def xai_tensor_batch(
+        self, arrays: _DialogueArrays, dialogue_indices: Sequence[int]
+    ) -> dict[str, torch.Tensor]:
+        """Return a tensor batch on the classifier device for XAI code."""
+
+        return self._tensor_batch(arrays, dialogue_indices)
+
+    def xai_model(self) -> MultimodalEmotionModel:
+        """Return the trained PyTorch model for XAI forward passes."""
+
+        return self._require_model()
+
     def _build_model(self) -> MultimodalEmotionModel:
         enc = self._config.modality_encoder
         fusion = self._config.fusion
@@ -238,7 +256,12 @@ class TorchDialogueEmotionClassifier:
         }
         dims: dict[Modality, int] = {}
         for modality, config_dim in configured.items():
-            actual = sum(m.n_features for m in bundle.by_modality(modality))
+            sequence = bundle.sequence_by_modality(modality)
+            actual = (
+                sum(m.n_features for m in sequence)
+                if sequence
+                else sum(m.n_features for m in bundle.by_modality(modality))
+            )
             if actual == 0:
                 dims[modality] = config_dim if config_dim > 0 else 1
             elif config_dim > 0 and config_dim != actual:
@@ -255,15 +278,22 @@ class TorchDialogueEmotionClassifier:
         max_len = max((len(indices) for indices in groups), default=1)
         n_dialogues = len(groups)
 
-        text_values = self._modality_values(bundle, Modality.TEXT)
-        audio_values = self._modality_values(bundle, Modality.AUDIO)
-        video_values = self._modality_values(bundle, Modality.VIDEO)
-        text_x = np.zeros((n_dialogues, max_len, 1, self._dims[Modality.TEXT]), dtype=np.float32)
-        audio_x = np.zeros((n_dialogues, max_len, 1, self._dims[Modality.AUDIO]), dtype=np.float32)
-        video_x = np.zeros((n_dialogues, max_len, 1, self._dims[Modality.VIDEO]), dtype=np.float32)
-        text_mask = np.zeros((n_dialogues, max_len, 1), dtype=np.float32)
-        audio_mask = np.zeros((n_dialogues, max_len, 1), dtype=np.float32)
-        video_mask = np.zeros((n_dialogues, max_len, 1), dtype=np.float32)
+        text_values, text_row_mask = self._modality_sequence_values(bundle, Modality.TEXT)
+        audio_values, audio_row_mask = self._modality_sequence_values(bundle, Modality.AUDIO)
+        video_values, video_row_mask = self._modality_sequence_values(bundle, Modality.VIDEO)
+        text_len = text_values.shape[1]
+        audio_len = audio_values.shape[1]
+        video_len = video_values.shape[1]
+        text_x = np.zeros((n_dialogues, max_len, text_len, self._dims[Modality.TEXT]), dtype=np.float32)
+        audio_x = np.zeros(
+            (n_dialogues, max_len, audio_len, self._dims[Modality.AUDIO]), dtype=np.float32
+        )
+        video_x = np.zeros(
+            (n_dialogues, max_len, video_len, self._dims[Modality.VIDEO]), dtype=np.float32
+        )
+        text_mask = np.zeros((n_dialogues, max_len, text_len), dtype=np.float32)
+        audio_mask = np.zeros((n_dialogues, max_len, audio_len), dtype=np.float32)
+        video_mask = np.zeros((n_dialogues, max_len, video_len), dtype=np.float32)
         modality_mask = np.zeros((n_dialogues, max_len, 3), dtype=np.float32)
         speaker_id = np.zeros((n_dialogues, max_len), dtype=np.int64)
         utterance_mask = np.zeros((n_dialogues, max_len), dtype=np.float32)
@@ -272,12 +302,12 @@ class TorchDialogueEmotionClassifier:
 
         for dialogue_idx, indices in enumerate(groups):
             for slot, flat_idx in enumerate(indices):
-                text_x[dialogue_idx, slot, 0] = text_values[flat_idx]
-                audio_x[dialogue_idx, slot, 0] = audio_values[flat_idx]
-                video_x[dialogue_idx, slot, 0] = video_values[flat_idx]
-                text_mask[dialogue_idx, slot, 0] = 1.0
-                audio_mask[dialogue_idx, slot, 0] = 1.0
-                video_mask[dialogue_idx, slot, 0] = 1.0
+                text_x[dialogue_idx, slot] = text_values[flat_idx]
+                audio_x[dialogue_idx, slot] = audio_values[flat_idx]
+                video_x[dialogue_idx, slot] = video_values[flat_idx]
+                text_mask[dialogue_idx, slot] = text_row_mask[flat_idx]
+                audio_mask[dialogue_idx, slot] = audio_row_mask[flat_idx]
+                video_mask[dialogue_idx, slot] = video_row_mask[flat_idx]
                 utterance_mask[dialogue_idx, slot] = 1.0
                 modality_mask[dialogue_idx, slot] = self._availability_row(bundle, flat_idx)
                 speaker_id[dialogue_idx, slot] = self._speaker_to_id.get(
@@ -314,11 +344,35 @@ class TorchDialogueEmotionClassifier:
             )
         return np.asarray(values, dtype=np.float32)
 
+    def _modality_sequence_values(
+        self, bundle: FeatureBundle, modality: Modality
+    ) -> tuple[np.ndarray, np.ndarray]:
+        matrices = bundle.sequence_by_modality(modality)
+        if matrices:
+            reference = matrices[0]
+            for matrix in matrices[1:]:
+                if matrix.mask.shape != reference.mask.shape or not np.array_equal(
+                    matrix.mask, reference.mask
+                ):
+                    raise ValueError(
+                        f"{modality.value} sequence matrices must share the same mask"
+                    )
+            values = np.concatenate([m.values for m in matrices], axis=2)
+            mask = reference.mask
+            if values.shape[2] != self._dims[modality]:
+                raise ValueError(
+                    f"{modality.value} sequence feature dim changed: "
+                    f"{values.shape[2]} != {self._dims[modality]}"
+                )
+            return np.asarray(values, dtype=np.float32), np.asarray(mask, dtype=np.float32)
+        values = self._modality_values(bundle, modality)
+        return values[:, None, :], np.ones((bundle.n_samples, 1), dtype=np.float32)
+
     @staticmethod
     def _availability_row(bundle: FeatureBundle, row: int) -> np.ndarray:
         result = np.zeros(3, dtype=np.float32)
         for idx, modality in enumerate((Modality.TEXT, Modality.AUDIO, Modality.VIDEO)):
-            if not bundle.by_modality(modality):
+            if not bundle.by_modality(modality) and not bundle.sequence_by_modality(modality):
                 continue
             avail = bundle.availability.get(modality)
             if avail is not None:

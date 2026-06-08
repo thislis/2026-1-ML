@@ -6,6 +6,7 @@ from pathlib import Path
 
 from meld_emotion.config.loader import dump_config, from_dict, load_config, to_dict
 from meld_emotion.config.schema import (
+    DialogueFineGrainedXaiConfig,
     EarlyFusionConfig,
     ExperimentConfig,
     LateFusionConfig,
@@ -16,7 +17,10 @@ from meld_emotion.config.schema import (
     SvmConfig,
     SyntheticConfig,
     TextConceptConfig,
+    TextTokenEmbeddingConfig,
     TfidfConfig,
+    VideoFrameEmbeddingConfig,
+    Wav2Vec2XlsrAudioSequenceConfig,
 )
 
 
@@ -59,6 +63,19 @@ def test_new_baseline_configs_roundtrip() -> None:
     ):
         config = ExperimentConfig(name="base", model=EarlyFusionConfig(base=base))
         assert from_dict(to_dict(config)) == config
+
+
+def test_finegrained_xai_configs_roundtrip() -> None:
+    config = ExperimentConfig(
+        name="xai",
+        extractors=(
+            TextTokenEmbeddingConfig(max_tokens=12, output_dim=32),
+            Wav2Vec2XlsrAudioSequenceConfig(max_steps=8, output_dim=16),
+            VideoFrameEmbeddingConfig(num_frames=4, output_dim=24),
+        ),
+        explainers=(DialogueFineGrainedXaiConfig(n_steps=4, top_k=3, max_targets=2),),
+    )
+    assert from_dict(to_dict(config)) == config
 
 
 def test_yaml_file_roundtrip(tmp_path: Path) -> None:

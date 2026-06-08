@@ -17,8 +17,14 @@ from typing import Protocol, Self, runtime_checkable
 import numpy as np
 
 from meld_emotion.core.data import AudioInput, ModalityMask, RawSample, VideoInput
-from meld_emotion.core.features import FeatureBundle, FeatureMatrix, UtteranceSpec
-from meld_emotion.core.protocols import FeatureCache, FeatureExtractor
+from meld_emotion.core.features import (
+    FeatureBundle,
+    FeatureMatrix,
+    FeatureUnit,
+    SequenceFeatureMatrix,
+    UtteranceSpec,
+)
+from meld_emotion.core.protocols import FeatureCache, FeatureExtractor, SequenceFeatureExtractor
 from meld_emotion.core.status import real
 from meld_emotion.core.types import MODALITY_ORDER, BoolArray, FloatArray, Modality, Split
 from meld_emotion.pipeline.cache import NullFeatureCache
@@ -114,6 +120,7 @@ class FeaturePipeline:
         self, samples: Sequence[RawSample], split: Split
     ) -> FeatureBundle:
         matrices = []
+        sequence_matrices: list[SequenceFeatureMatrix] = []
         for extractor in self._extractors:
             key = f"{extractor.name}|{split.value}"
             cached = self._cache.get(key)
@@ -145,9 +152,26 @@ class FeaturePipeline:
                     matrix.kind.value,
                 )
                 matrices.append(matrix)
+            if isinstance(extractor, SequenceFeatureExtractor):
+                logger.info(
+                    "sequence 특징 변환 시작: extractor=%s split=%s",
+                    extractor.name,
+                    split.value,
+                )
+                sequence = extractor.transform_sequence(samples)
+                _validate_sequence_matrix(sequence, extractor.name, len(samples))
+                sequence_matrices.append(sequence)
+                logger.info(
+                    "sequence 특징 변환 완료: extractor=%s samples=%d length=%d features=%d",
+                    extractor.name,
+                    sequence.n_samples,
+                    sequence.sequence_length,
+                    sequence.n_features,
+                )
         bundle = FeatureBundle(
             uids=tuple(s.uid for s in samples),
             matrices=tuple(matrices),
+            sequence_matrices=tuple(sequence_matrices),
             availability=self._availability(samples),
             utterances=tuple(
                 UtteranceSpec(
@@ -192,6 +216,8 @@ class FeaturePipeline:
         prepared_light: list[RawSample] = []
         value_chunks: list[list[FloatArray]] = [[] for _ in self._extractors]
         specs: list[FeatureMatrix | None] = [None for _ in self._extractors]
+        sequence_chunks: list[list[SequenceFeatureMatrix]] = [[] for _ in self._extractors]
+        sequence_specs: list[SequenceFeatureMatrix | None] = [None for _ in self._extractors]
 
         total = len(samples)
         for start in range(0, total, self._media_chunk_size):
@@ -225,6 +251,15 @@ class FeaturePipeline:
                     _validate_matrix_compatible(specs[extractor_index], matrix)
                 value_chunks[extractor_index].append(matrix.values)
 
+                if isinstance(extractor, SequenceFeatureExtractor):
+                    sequence = extractor.transform_sequence(prepared_chunk)
+                    _validate_sequence_matrix(sequence, extractor.name, len(prepared_chunk))
+                    if sequence_specs[extractor_index] is None:
+                        sequence_specs[extractor_index] = sequence
+                    else:
+                        _validate_sequence_compatible(sequence_specs[extractor_index], sequence)
+                    sequence_chunks[extractor_index].append(sequence)
+
         if len(prepared_light) < len(samples):
             logger.warning(
                 "미디어 준비 중 샘플 제외: raw_samples=%d kept_samples=%d",
@@ -233,6 +268,7 @@ class FeaturePipeline:
             )
 
         matrices: list[FeatureMatrix] = []
+        sequence_matrices: list[SequenceFeatureMatrix] = []
         for extractor_index, extractor in enumerate(self._extractors):
             spec = specs[extractor_index]
             chunks = value_chunks[extractor_index]
@@ -260,7 +296,24 @@ class FeaturePipeline:
             )
             matrices.append(matrix)
 
-        bundle = self._bundle_from_prepared(tuple(prepared_light), tuple(matrices), split)
+            if isinstance(extractor, SequenceFeatureExtractor):
+                sequence = _concat_sequence_chunks(
+                    sequence_chunks[extractor_index],
+                    sequence_specs[extractor_index],
+                    extractor,
+                )
+                sequence_matrices.append(sequence)
+                logger.info(
+                    "sequence 특징 변환 완료: extractor=%s samples=%d length=%d features=%d",
+                    extractor.name,
+                    sequence.n_samples,
+                    sequence.sequence_length,
+                    sequence.n_features,
+                )
+
+        bundle = self._bundle_from_prepared(
+            tuple(prepared_light), tuple(matrices), split, tuple(sequence_matrices)
+        )
         _put_cached_bundle(self._cache, bundle_key, bundle)
         logger.info("청크 미디어 특징 변환 완료: split=%s samples=%d", split.value, bundle.n_samples)
         return bundle
@@ -334,11 +387,16 @@ class FeaturePipeline:
         return self._media_loader is not None and (self._needs_audio or self._needs_video)
 
     def _bundle_from_prepared(
-        self, samples: Sequence[RawSample], matrices: tuple[FeatureMatrix, ...], split: Split
+        self,
+        samples: Sequence[RawSample],
+        matrices: tuple[FeatureMatrix, ...],
+        split: Split,
+        sequence_matrices: tuple[SequenceFeatureMatrix, ...] = (),
     ) -> FeatureBundle:
         bundle = FeatureBundle(
             uids=tuple(s.uid for s in samples),
             matrices=matrices,
+            sequence_matrices=sequence_matrices,
             availability=self._availability(samples),
             utterances=tuple(
                 UtteranceSpec(
@@ -444,6 +502,66 @@ def _validate_matrix_compatible(reference: FeatureMatrix | None, matrix: Feature
             "청크별 FeatureMatrix schema 가 일치하지 않습니다: "
             f"{reference.source} vs {matrix.source}"
         )
+
+
+def _validate_sequence_matrix(
+    matrix: SequenceFeatureMatrix, extractor_name: str, n_samples: int
+) -> None:
+    if matrix.n_samples != n_samples:
+        raise ValueError(
+            f"{extractor_name} sequence 출력 행 수가 sample 수와 일치하지 않습니다: "
+            f"{matrix.n_samples} != {n_samples}"
+        )
+
+
+def _validate_sequence_compatible(
+    reference: SequenceFeatureMatrix | None, matrix: SequenceFeatureMatrix
+) -> None:
+    if reference is None:
+        return
+    if (
+        matrix.names != reference.names
+        or matrix.modality != reference.modality
+        or matrix.kind != reference.kind
+        or matrix.source != reference.source
+    ):
+        raise ValueError(
+            "청크별 SequenceFeatureMatrix schema 가 일치하지 않습니다: "
+            f"{reference.source} vs {matrix.source}"
+        )
+
+
+def _concat_sequence_chunks(
+    chunks: Sequence[SequenceFeatureMatrix],
+    spec: SequenceFeatureMatrix | None,
+    extractor: FeatureExtractor,
+) -> SequenceFeatureMatrix:
+    if not chunks:
+        if isinstance(extractor, SequenceFeatureExtractor):
+            return extractor.transform_sequence(())
+        raise ValueError(f"{extractor.name} 는 sequence extractor 가 아닙니다")
+    first = spec if spec is not None else chunks[0]
+    total = sum(chunk.n_samples for chunk in chunks)
+    max_len = max(chunk.sequence_length for chunk in chunks)
+    values = np.zeros((total, max_len, first.n_features), dtype=np.float64)
+    mask = np.zeros((total, max_len), dtype=bool)
+    units: list[tuple[FeatureUnit, ...]] = []
+    row = 0
+    for chunk in chunks:
+        end = row + chunk.n_samples
+        values[row:end, : chunk.sequence_length] = chunk.values
+        mask[row:end, : chunk.sequence_length] = chunk.mask
+        units.extend(chunk.units)
+        row = end
+    return SequenceFeatureMatrix(
+        values=values,
+        mask=mask,
+        units=tuple(units),
+        names=first.names,
+        modality=first.modality,
+        kind=first.kind,
+        source=first.source,
+    )
 
 
 def _bundle_cache_key(split: Split, samples: Sequence[RawSample]) -> str:
