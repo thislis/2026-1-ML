@@ -10,10 +10,12 @@ from importlib import import_module
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from meld_emotion.core.data import AudioInput, ModalityMask, RawSample, VideoInput
 from meld_emotion.core.protocols import Classifier, FeatureExtractor
 from meld_emotion.core.results import DialogueXaiResult
-from meld_emotion.core.types import Emotion, Split
+from meld_emotion.core.types import Emotion, FloatArray, Split
 from meld_emotion.data.media import MediaLoader as RawMediaLoader
 from meld_emotion.explain.dialogue_finegrained import DialogueFineGrainedXaiExplainer
 from meld_emotion.features.audio import (
@@ -22,6 +24,7 @@ from meld_emotion.features.audio import (
 )
 from meld_emotion.features.text import EmbeddingGemmaTextExtractor, TextTokenEmbeddingExtractor
 from meld_emotion.features.video import TimeSformerVideoExtractor, VideoFrameEmbeddingExtractor
+from meld_emotion.models.two_stage import TwoStageDecision
 from meld_emotion.pipeline.cache import NullFeatureCache
 from meld_emotion.pipeline.feature_pipeline import FeaturePipeline, MediaLoader
 
@@ -39,6 +42,7 @@ class InferenceResult:
     top_k: tuple[tuple[Emotion, float], ...]
     checkpoint: str
     mp4_path: str
+    two_stage: TwoStageDecision | None = None
     xai: tuple[DialogueXaiResult, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
@@ -51,6 +55,7 @@ class InferenceResult:
             ],
             "checkpoint": self.checkpoint,
             "mp4_path": self.mp4_path,
+            "two_stage": _jsonable(self.two_stage),
             "xai": _jsonable(self.xai),
         }
 
@@ -108,7 +113,8 @@ def run_inference(
     )
     bundle = pipeline.fit_transform((sample,), Split.TEST)
     model = classifier if classifier is not None else _load_classifier(checkpoint, resolved_device)
-    probabilities = model.predict_proba(bundle)
+    prediction = model.predict(bundle)
+    probabilities = prediction.proba
     if probabilities.shape[0] != 1:
         raise ValueError(f"추론 결과 행 수가 1이 아닙니다: {probabilities.shape[0]}")
     classes = tuple(model.classes)
@@ -119,7 +125,9 @@ def run_inference(
     top = tuple(
         sorted(scores.items(), key=lambda item: item[1], reverse=True)[: min(top_k, len(scores))]
     )
-    label, probability = top[0]
+    label = classes[int(prediction.y_pred[0])]
+    probability = scores[label]
+    two_stage = _stage_decision(model, bundle, probabilities)
     xai = _run_xai(model, bundle, xai_n_steps, xai_top_k) if include_xai else ()
     return InferenceResult(
         label=label,
@@ -128,6 +136,7 @@ def run_inference(
         top_k=top,
         checkpoint=str(checkpoint),
         mp4_path=str(mp4),
+        two_stage=two_stage,
         xai=xai,
     )
 
@@ -273,11 +282,88 @@ def format_inference_result(result: InferenceResult) -> str:
             lines.append(f"    text: {text}")
             lines.append(f"    audio: {audio}")
             lines.append(f"    video: {video}")
+    if result.two_stage is not None:
+        stage2 = result.two_stage.stage2_label.value if result.two_stage.stage2_label else "-"
+        lines.extend(
+            [
+                "two_stage:",
+                f"  model1: {result.two_stage.stage1_label}",
+                f"  p_neutral: {result.two_stage.neutral_probability:.6f}",
+                f"  p_non_neutral: {result.two_stage.non_neutral_probability:.6f}",
+                f"  model2: {stage2}",
+                f"  rationale: {result.two_stage.rationale}",
+            ]
+        )
     return "\n".join(lines)
 
 
 def result_to_json(result: InferenceResult) -> str:
     return json.dumps(result.to_dict(), ensure_ascii=False, indent=2)
+
+
+def result_to_markdown(result: InferenceResult) -> str:
+    """Human-readable Markdown explanation for a single inference result."""
+
+    lines = [
+        "# Emotion Inference Result",
+        "",
+        f"- Prediction: `{result.label.value}`",
+        f"- Confidence: `{result.probability:.6f}`",
+        f"- Checkpoint: `{result.checkpoint}`",
+        f"- MP4: `{result.mp4_path}`",
+        "",
+        "## Top Classes",
+        "",
+    ]
+    lines.extend(f"- `{label.value}`: `{score:.6f}`" for label, score in result.top_k)
+    if result.two_stage is not None:
+        stage2 = result.two_stage.stage2_label.value if result.two_stage.stage2_label else "n/a"
+        lines.extend(
+            [
+                "",
+                "## Two-Stage Decision",
+                "",
+                f"- Model 1: `{result.two_stage.stage1_label}`",
+                f"- P(neutral): `{result.two_stage.neutral_probability:.6f}`",
+                f"- P(non-neutral): `{result.two_stage.non_neutral_probability:.6f}`",
+                f"- Model 2 top emotion: `{stage2}`",
+                f"- Rationale: {result.two_stage.rationale}",
+            ]
+        )
+    if result.xai:
+        lines.extend(["", "## Fine-Grained XAI", ""])
+        for item in result.xai:
+            lines.extend(
+                [
+                    f"### {item.uid}",
+                    "",
+                    f"- Target class: `{item.target_class.value}`",
+                    f"- Predicted class: `{item.pred_class.value}`",
+                    f"- Predicted probability: `{item.pred_proba:.6f}`",
+                    "",
+                    "| Modality | Available | Gate | Attribution Share | Ablation Delta Logit |",
+                    "| --- | --- | ---: | ---: | ---: |",
+                ]
+            )
+            for modality in item.modality:
+                gate = "-" if modality.gate is None else f"{modality.gate:.6f}"
+                delta = (
+                    "-"
+                    if modality.ablation_delta_logit is None
+                    else f"{modality.ablation_delta_logit:.6f}"
+                )
+                lines.append(
+                    f"| {modality.modality.value} | {modality.available} | {gate} | "
+                    f"{modality.attribution_share:.6f} | {delta} |"
+                )
+            lines.extend(["", "Top text units:"])
+            lines.extend(f"- {unit.label}: `{unit.score:.6f}`" for unit in item.top_text_units)
+            lines.extend(["", "Top audio units:"])
+            lines.extend(f"- {unit.label}: `{unit.score:.6f}`" for unit in item.top_audio_units)
+            lines.extend(["", "Top video units:"])
+            lines.extend(f"- {unit.label}: `{unit.score:.6f}`" for unit in item.top_video_units)
+            lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def inference_dashboard_payload(result: InferenceResult) -> dict[str, object]:
@@ -348,14 +434,67 @@ def _run_xai(
 
     if not isinstance(bundle, FeatureBundle):
         raise TypeError("bundle must be FeatureBundle")
+    explainer_model = getattr(model, "base", model)
     explainer = DialogueFineGrainedXaiExplainer(
         n_steps=n_steps,
         top_k=top_k,
         max_targets=1,
         target="predicted",
     )
-    report = explainer.explain(model, bundle, _dummy_labels(bundle.n_samples))
+    report = explainer.explain(explainer_model, bundle, _dummy_labels(bundle.n_samples))
     return report.dialogue_xai
+
+
+def _stage_decision(
+    model: Classifier,
+    bundle: object,
+    proba: FloatArray,
+) -> TwoStageDecision | None:
+    from meld_emotion.core.features import FeatureBundle
+
+    if not isinstance(bundle, FeatureBundle):
+        raise TypeError("bundle must be FeatureBundle")
+    stage_outputs = getattr(model, "stage_outputs", None)
+    if callable(stage_outputs):
+        decisions = stage_outputs(bundle, proba=proba)
+        return decisions[0] if decisions else None
+    if Emotion.NEUTRAL not in model.classes:
+        return None
+    neutral_idx = model.classes.index(Emotion.NEUTRAL)
+    neutral_probability = float(proba[0, neutral_idx])
+    non_neutral_probability = float(max(0.0, 1.0 - neutral_probability))
+    emotion_indices = [idx for idx, emotion in enumerate(model.classes) if emotion != Emotion.NEUTRAL]
+    if not emotion_indices:
+        return None
+    emotion_mass = float(proba[0, emotion_indices].sum())
+    best_idx = max(emotion_indices, key=lambda idx: float(proba[0, idx]))
+    stage2_label = model.classes[best_idx]
+    final_idx = int(np.argmax(proba[0]))
+    final_label = model.classes[final_idx]
+    stage1_label = "neutral" if final_label == Emotion.NEUTRAL else "non_neutral"
+    emotion_scores = {
+        model.classes[idx]: (
+            float(proba[0, idx] / emotion_mass)
+            if emotion_mass > 0.0
+            else float(proba[0, idx])
+        )
+        for idx in emotion_indices
+    }
+    return TwoStageDecision(
+        uid=bundle.uids[0],
+        neutral_probability=neutral_probability,
+        non_neutral_probability=non_neutral_probability,
+        stage1_label=stage1_label,
+        stage2_label=stage2_label,
+        final_label=final_label,
+        final_probability=float(proba[0, final_idx]),
+        emotion_scores=emotion_scores,
+        rationale=(
+            f"Derived two-stage trace from seven-way probabilities: "
+            f"P(non_neutral)={non_neutral_probability:.6f}, "
+            f"top non-neutral emotion={stage2_label.value}."
+        ),
+    )
 
 
 def _dummy_labels(n: int) -> Any:

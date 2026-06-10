@@ -32,11 +32,12 @@
   `FeatureMatrix` 기반 early/late fusion 은 그대로 동작하고, `dialogue_rnn` 은 sequence 특징이
   있으면 `[B,N,L,D]` 입력을 우선 사용한다.
 - `Estimator` 는 평범한 행렬(X, y)을, `Classifier` 는 `FeatureBundle` 을 다룬다(ISP).
-- 현재 상태 기준 `REAL 49`, `PLACEHOLDER 7`, `UNIMPLEMENTED 0` 이며, placeholder 는 실제 사용 시
+- 현재 상태 기준 `REAL 60`, `PLACEHOLDER 7`, `UNIMPLEMENTED 0` 이며, placeholder 는 실제 사용 시
   경고를 내거나 상태표에 사유를 표시한다.
   현재 REAL 구현에는 MELD raw/metadata loader, raw media loader, EmbeddingGemma/Wav2Vec2
   XLS-R/TimeSformer/VideoPrism extractor, fine-grained sequence extractor, sklearn/XGBoost
-  baseline, dialogue RNN, suite runner, console/JSON/comparison reporter 가 포함된다.
+  baseline, MLP estimator, dialogue RNN, ensemble/MoE/two-stage classifier, suite runner,
+  console/JSON/comparison reporter 가 포함된다.
 
 ## 바꿀 일이 생기면
 

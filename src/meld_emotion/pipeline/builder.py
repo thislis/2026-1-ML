@@ -7,9 +7,11 @@ DIP 의 핵심. 오직 이 모듈만이 모든 구체 구현을 import 하고, �
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Callable, Sequence
 
+from meld_emotion.config.loader import to_dict
 from meld_emotion.config.schema import (
     AudioConceptConfig,
     BowTextConfig,
@@ -24,6 +26,7 @@ from meld_emotion.config.schema import (
     DiskCacheConfig,
     EarlyFusionConfig,
     EmbeddingGemmaTextConfig,
+    EnsembleConfig,
     EstimatorConfig,
     ExperimentConfig,
     ExplainerConfig,
@@ -38,8 +41,10 @@ from meld_emotion.config.schema import (
     MeldConfig,
     MemoryCacheConfig,
     MfccConfig,
+    MlpConfig,
     ModalityAblationConfig,
     ModelConfig,
+    MoeConfig,
     NearestCentroidConfig,
     NullCacheConfig,
     PermutationConfig,
@@ -55,6 +60,7 @@ from meld_emotion.config.schema import (
     TextTokenEmbeddingConfig,
     TfidfConfig,
     TimeSformerVideoConfig,
+    TwoStageConfig,
     VideoConceptConfig,
     VideoFrameEmbeddingConfig,
     VideoPrismConfig,
@@ -123,12 +129,16 @@ from meld_emotion.models.baselines import (
     NearestCentroidEstimator,
     RandomEstimator,
 )
+from meld_emotion.models.ensemble import ArtifactEnsembleClassifier
+from meld_emotion.models.mlp_estimator import MlpEstimator
+from meld_emotion.models.moe import MoeEmotionClassifier
 from meld_emotion.models.sklearn_estimators import (
     KnnEstimator,
     LogisticRegressionEstimator,
     RandomForestEstimator,
     SvmEstimator,
 )
+from meld_emotion.models.two_stage import TwoStageEmotionClassifier
 from meld_emotion.models.xgboost_estimators import XGBoostEstimator
 from meld_emotion.pipeline.cache import (
     DiskFeatureCache,
@@ -315,6 +325,22 @@ def build_estimator_factory(config: EstimatorConfig) -> Callable[[int], Estimato
             colsample_bytree=config.colsample_bytree,
             seed=config.seed,
         )
+    if isinstance(config, MlpConfig):
+        return lambda n: MlpEstimator(
+            n_classes=n,
+            hidden_dim=config.hidden_dim,
+            dropout=config.dropout,
+            learning_rate=config.learning_rate,
+            weight_decay=config.weight_decay,
+            batch_size=config.batch_size,
+            max_epochs=config.max_epochs,
+            early_stopping_patience=config.early_stopping_patience,
+            validation_split=config.validation_split,
+            class_weight=config.class_weight,
+            class_weights=config.class_weights,
+            random_seed=config.random_seed,
+            device=config.device,
+        )
     raise ValueError(f"알 수 없는 학습기 설정: {type(config).__name__}")
 
 
@@ -341,6 +367,20 @@ def build_classifier(config: ModelConfig, classes: tuple[Emotion, ...]) -> Class
         from meld_emotion.models.dialogue_rnn import TorchDialogueEmotionClassifier
 
         return TorchDialogueEmotionClassifier(config, classes)
+    if isinstance(config, EnsembleConfig):
+        return ArtifactEnsembleClassifier(
+            build_classifier(config.base, classes),
+            config.ensemble,
+            classes,
+        )
+    if isinstance(config, MoeConfig):
+        return MoeEmotionClassifier(config.moe, classes)
+    if isinstance(config, TwoStageConfig):
+        return TwoStageEmotionClassifier(
+            build_classifier(config.base, classes),
+            neutral_threshold=config.neutral_threshold,
+            neutral_label=Emotion(config.neutral_label),
+        )
     raise ValueError(f"알 수 없는 모델 설정: {type(config).__name__}")
 
 
@@ -451,6 +491,11 @@ def build_experiment(
         train_split=Split(config.train_split),
         eval_split=Split(config.eval_split),
         dropout=dropout,
+        metadata={
+            "seed": str(config.seed),
+            "output_dir": config.output_dir,
+            "config_snapshot": json.dumps(to_dict(config), ensure_ascii=False, sort_keys=True),
+        },
     )
     logger.info(
         "실험 구성 완료: name=%s metrics=%s scenarios=%s reporters=%d",

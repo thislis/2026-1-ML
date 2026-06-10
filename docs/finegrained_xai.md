@@ -105,4 +105,4 @@ Attention 값은 모델 내부 관찰값이며, 예측 기여도 자체와 항�
 Integrated Gradients, modality/block ablation 과 함께 비교해서 해석해야 한다.
 
 v1 비디오는 프레임 단위 중요도를 제공한다. 화면 영역, 얼굴 부위, patch heatmap 은 아직 구현하지
-않았다. 이 경로는 `version_history.md` 의 v2 항목에 남겨 두었다.
+않았다. 이 후속 경로는 `version_history.md` 의 `ours_v2.5` 변천사와 후보 항목에 남겨 두었다.

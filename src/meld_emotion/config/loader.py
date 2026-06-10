@@ -24,6 +24,7 @@ from meld_emotion.config.schema import (
     MODEL_CONFIGS,
     REPORTER_CONFIGS,
     CacheConfig,
+    CalibrationSettings,
     ClassifierHeadSettings,
     CombinerConfig,
     DatasetConfig,
@@ -31,19 +32,32 @@ from meld_emotion.config.schema import (
     DialogueRnnConfig,
     DialogueTrainingSettings,
     DropoutConfig,
+    EnsembleConfig,
+    EnsembleDistillationSettings,
+    EnsembleSettings,
     EstimatorConfig,
     EvaluationConfig,
     ExperimentConfig,
     ExplainerConfig,
     ExtractorConfig,
     FusionSettings,
+    HardNegativeMiningSettings,
+    LogitAdjustmentSettings,
+    LossSettings,
     MediaConfig,
     MemoryAttentionSettings,
+    MlpConfig,
     ModalityEncoderSettings,
     ModelConfig,
+    MoeConfig,
+    MoeExpertSettings,
+    MoeSettings,
+    NeutralGateSettings,
+    RareExpertSettings,
     ReporterConfig,
     StackingCombinerConfig,
     SuiteConfig,
+    TwoStageConfig,
 )
 
 
@@ -68,6 +82,8 @@ def _extractor(data: Mapping[str, Any]) -> ExtractorConfig:
 
 def _estimator(data: Mapping[str, Any]) -> EstimatorConfig:
     name, rest = _pop_type(data)
+    if name == MlpConfig.type and "class_weights" in rest:
+        rest["class_weights"] = tuple(float(v) for v in rest["class_weights"])
     return ESTIMATOR_CONFIGS.create(name, **rest)
 
 
@@ -80,10 +96,29 @@ def _combiner(data: Mapping[str, Any]) -> CombinerConfig:
 
 def _model(data: Mapping[str, Any]) -> ModelConfig:
     name, rest = _pop_type(data)
-    if "base" in rest:
+    if name in {EnsembleConfig.type, TwoStageConfig.type} and "base" in rest:
+        rest["base"] = _model(rest["base"])
+    elif "base" in rest:
         rest["base"] = _estimator(rest["base"])
     if "combiner" in rest:
         rest["combiner"] = _combiner(rest["combiner"])
+    if name == EnsembleConfig.type and "ensemble" in rest:
+        ensemble_data = dict(rest["ensemble"])
+        if "distillation" in ensemble_data:
+            ensemble_data["distillation"] = EnsembleDistillationSettings(
+                **ensemble_data["distillation"]
+            )
+        rest["ensemble"] = EnsembleSettings(**ensemble_data)
+    if name == MoeConfig.type and "moe" in rest:
+        moe_data = dict(rest["moe"])
+        if "experts" in moe_data:
+            moe_data["experts"] = MoeExpertSettings(**moe_data["experts"])
+        if "rare_expert" in moe_data:
+            rare_data = dict(moe_data["rare_expert"])
+            if "target_classes" in rare_data:
+                rare_data["target_classes"] = tuple(int(v) for v in rare_data["target_classes"])
+            moe_data["rare_expert"] = RareExpertSettings(**rare_data)
+        rest["moe"] = MoeSettings(**moe_data)
     if name == DialogueRnnConfig.type:
         if "modality_encoder" in rest:
             rest["modality_encoder"] = ModalityEncoderSettings(**rest["modality_encoder"])
@@ -97,6 +132,29 @@ def _model(data: Mapping[str, Any]) -> ModelConfig:
             rest["classifier"] = ClassifierHeadSettings(**rest["classifier"])
         if "training" in rest:
             rest["training"] = DialogueTrainingSettings(**rest["training"])
+        if "loss" in rest:
+            loss_data = dict(rest["loss"])
+            if "logit_adjustment" in loss_data:
+                loss_data["logit_adjustment"] = LogitAdjustmentSettings(
+                    **loss_data["logit_adjustment"]
+                )
+            if "hard_negative_mining" in loss_data:
+                hard_negative_data = dict(loss_data["hard_negative_mining"])
+                if "target_classes" in hard_negative_data:
+                    hard_negative_data["target_classes"] = tuple(
+                        int(v) for v in hard_negative_data["target_classes"]
+                    )
+                loss_data["hard_negative_mining"] = HardNegativeMiningSettings(**hard_negative_data)
+            rest["loss"] = LossSettings(**loss_data)
+        if "calibration" in rest:
+            calibration_data = dict(rest["calibration"])
+            if "rare_classes" in calibration_data:
+                calibration_data["rare_classes"] = tuple(
+                    int(v) for v in calibration_data["rare_classes"]
+                )
+            rest["calibration"] = CalibrationSettings(**calibration_data)
+        if "neutral_gate" in rest:
+            rest["neutral_gate"] = NeutralGateSettings(**rest["neutral_gate"])
     return MODEL_CONFIGS.create(name, **rest)
 
 

@@ -1,0 +1,27 @@
+name: conformer_sequence_moe_rare
+
+dataset:
+  type: synthetic
+  n_train: 24
+  n_dev: 0
+  n_test: 12
+
+extractors:
+  - type: text_concepts
+  - type: audio_concepts
+  - type: video_concepts
+
+model:
+  type: moe
+  moe:
+    routing: top2
+    top_k: 2
+    class_aware_routing: true
+    rare_expert:
+      enabled: true
+      target_classes: [5, 6]
+      loss_weight: 0.5
+      hard_negative_weight: 1.5
+
+reporters: []
+

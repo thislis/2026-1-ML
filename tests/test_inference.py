@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pytest
@@ -32,8 +33,10 @@ from meld_emotion.inference import (
     dashboard_to_json,
     format_inference_result,
     result_to_json,
+    result_to_markdown,
     run_inference,
 )
+from meld_emotion.models.two_stage import TwoStageEmotionClassifier
 
 
 class _FixedExtractor:
@@ -127,6 +130,32 @@ def test_run_inference_with_injected_components(tmp_path: Path) -> None:
     ]
     assert result.to_dict()["label"] == "joy"
     assert '"label": "joy"' in result_to_json(result)
+    assert result.two_stage is not None
+    assert result.two_stage.stage1_label == "non_neutral"
+
+
+def test_run_inference_uses_two_stage_final_prediction(tmp_path: Path) -> None:
+    mp4 = tmp_path / "sample.mp4"
+    mp4.write_bytes(b"not a real mp4")
+    classifier = TwoStageEmotionClassifier(_FakeClassifier(), neutral_threshold=0.98)
+
+    result = run_inference(
+        mp4,
+        "I am so happy!",
+        checkpoint_path=tmp_path / "fake.pt",
+        device="cpu",
+        top_k=3,
+        extractors=_extractors(),
+        media_loader=_FakeMediaLoader(),
+        classifier=classifier,
+    )
+
+    assert result.label == Emotion.NEUTRAL
+    assert result.two_stage is not None
+    assert result.two_stage.stage1_label == "neutral"
+    assert result.two_stage.stage2_label == Emotion.JOY
+    two_stage = cast(dict[str, object], result.to_dict()["two_stage"])
+    assert two_stage["final_label"] == "neutral"
 
 
 def test_inference_result_can_include_xai() -> None:
@@ -167,6 +196,10 @@ def test_inference_result_can_include_xai() -> None:
     dashboard = dashboard_to_json(result)
     assert '"finegrained_xai"' in dashboard
     assert '"modality_panel"' in dashboard
+    markdown = result_to_markdown(result)
+    assert "# Emotion Inference Result" in markdown
+    assert "## Fine-Grained XAI" in markdown
+    assert "Top text units" in markdown
 
 
 def test_run_inference_validates_inputs(tmp_path: Path) -> None:

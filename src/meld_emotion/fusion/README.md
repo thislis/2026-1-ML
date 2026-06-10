@@ -27,6 +27,8 @@ Early/Late fusion 은 동일한 `Classifier` 계약(`fit(bundle,y)`/`predict`/`p
 ## 메모
 
 - Late fusion 의 기초 학습기 팩토리는 모달리티 수만큼 호출되므로 매번 새 인스턴스를 반환해야 한다.
+- `StackingCombiner` 는 현재 메타 학습기를 학습하지 않고 평균 결합으로 fallback 하는 placeholder
+  다. 실제 stacking 을 구현할 때는 `fit(per_modality, y)` 에서 메타 estimator 를 학습해야 한다.
 - Early fusion 은 `FeatureBundle.stack()` 의 표준 모달리티 순서(text→audio→video)를 사용하므로
   fit/transform 의 열 순서가 안정적이다. `use_concepts: false` 로 embedding 만 학습 입력에 넣을
   수 있다.

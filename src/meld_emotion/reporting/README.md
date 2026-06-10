@@ -29,6 +29,9 @@
 
 - JSON 직렬화 헬퍼 `_jsonable` 은 dataclass/numpy 배열/Enum/매핑을 재귀 변환한다. 새 결과
   타입을 추가해도 대개 그대로 직렬화된다.
+- suite 결과는 성공한 변형과 실패한 변형을 같은 `ComparisonReport.outcomes` 안에 담는다.
+  실패 사유는 `error` 문자열로 보존되므로, gated model 인증이나 native dependency 문제를
+  결과 JSON 에서 확인할 수 있다.
 - `ConsoleReporter` 는 `ExplanationReport.dialogue_xai` 가 있으면 각 target 의 top modality,
   source utterance, token/audio span/video frame 을 짧게 출력한다. 전체 값은 JSON/dashboard
   리포트에서 확인한다.

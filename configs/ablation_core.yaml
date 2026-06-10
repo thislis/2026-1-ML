@@ -1,0 +1,130 @@
+name: ablation_core
+metrics: [accuracy, macro_f1, weighted_f1]
+robustness_metric: macro_f1
+output_path: outputs/ablation_core.json
+
+base:
+  dataset:
+    type: synthetic
+    n_train: 60
+    n_dev: 0
+    n_test: 24
+    seed: 0
+  extractors:
+    - type: text_concepts
+    - type: text_bow
+      n_features: 32
+    - type: audio_concepts
+    - type: video_concepts
+  evaluation:
+    metrics: [accuracy, macro_f1]
+    confusion: false
+    scenarios: [full]
+  reporters: []
+
+experiments:
+  - name: text_only_svm
+    extractors:
+      - type: text_concepts
+      - type: text_bow
+        n_features: 32
+    model:
+      type: early
+      base:
+        type: svm
+  - name: text_only_logreg
+    extractors:
+      - type: text_concepts
+      - type: text_bow
+        n_features: 32
+    model:
+      type: early
+      base:
+        type: logreg
+  - name: text_audio_svm
+    extractors:
+      - type: text_concepts
+      - type: text_bow
+        n_features: 32
+      - type: audio_concepts
+    model:
+      type: early
+      base:
+        type: svm
+  - name: text_video_svm
+    extractors:
+      - type: text_concepts
+      - type: text_bow
+        n_features: 32
+      - type: video_concepts
+    model:
+      type: early
+      base:
+        type: svm
+  - name: all_svm
+    model:
+      type: early
+      base:
+        type: svm
+  - name: text_only_mlp
+    extractors:
+      - type: text_concepts
+      - type: text_bow
+        n_features: 32
+    model:
+      type: early
+      base:
+        type: mlp
+        hidden_dim: 16
+        max_epochs: 1
+  - name: all_mlp
+    model:
+      type: early
+      base:
+        type: mlp
+        hidden_dim: 16
+        max_epochs: 1
+  - name: dialogue_rnn_fused_only
+    model:
+      type: dialogue_rnn
+      dialogue_context:
+        use_context: false
+      memory_attention:
+        enabled: false
+        use_memory: false
+      training:
+        max_epochs: 1
+        device: cpu
+  - name: dialogue_rnn_fused_context
+    model:
+      type: dialogue_rnn
+      memory_attention:
+        enabled: false
+        use_memory: false
+      training:
+        max_epochs: 1
+        device: cpu
+  - name: dialogue_rnn_fused_context_memory
+    model:
+      type: dialogue_rnn
+      training:
+        max_epochs: 1
+        device: cpu
+  - name: dialogue_rnn_no_speaker
+    model:
+      type: dialogue_rnn
+      dialogue_context:
+        use_speaker: false
+      training:
+        max_epochs: 1
+        device: cpu
+  - name: dialogue_rnn_no_interaction
+    model:
+      type: dialogue_rnn
+      fusion:
+        use_interaction: false
+        use_interaction_features: false
+      training:
+        max_epochs: 1
+        device: cpu
+

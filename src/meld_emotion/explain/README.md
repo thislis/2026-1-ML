@@ -25,11 +25,14 @@
 
 `configs/meld_embeddinggemma_wav2vec2_suite.yaml` 은 `modality_ablation` 을 켜서 foundation
 embedding 기반 raw MELD suite 에서 weighted F1 기준 모달리티 기여도를 함께 저장한다.
-`configs/all_model_w_all_features.yaml` 도 같은 설명기를 사용하며, text/audio/video 제거에 따른
-weighted F1 하락폭을 `ComparisonReport` JSON 안의 각 실험 결과에 남긴다.
+text/audio/video sequence feature 의 no-video 강건성은 `configs/meld_sequence_dialogue_rnn.yaml`
+의 `evaluation.scenarios` 에서 확인한다. 이 설정은 dialogue 모델 학습용 run config 이므로,
+modality contribution JSON 이 필요하면 `modality_ablation` explainer 를 별도로 추가한다.
 
 Fine-grained XAI 는 `type: dialogue_finegrained_xai` 로 켠다. `max_targets` 로 비용을 제한하고,
-결과는 `ExplanationReport.dialogue_xai` 에 저장된다. 예제는
+결과는 `ExplanationReport.dialogue_xai` 에 저장된다. `meld-emotion infer --xai` 도 같은 설명기를
+단일 MP4+텍스트 입력에 재사용하며, `--xai-dashboard` 로 dashboard payload 를 별도로 저장할 수
+있다. 예제는
 [configs/example_finegrained_xai.yaml](../../../configs/example_finegrained_xai.yaml) 이다.
 
 ## 새 설명기 추가하기
