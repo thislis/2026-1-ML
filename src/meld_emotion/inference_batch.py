@@ -140,18 +140,32 @@ def run_batch_inference(
     logger.info("batch inference samples loaded: raw=%d", len(samples))
 
     classifier = TorchDialogueEmotionClassifier.from_checkpoint(checkpoint_path, resolved_device)
-    pooled_bundle = _build_pooled_bundle(samples, resolved_device)
-    prediction = classifier.predict(pooled_bundle)
-    base_records = _base_prediction_records(samples, pooled_bundle, prediction, checkpoint_path)
-    logger.info("pooled prediction complete: kept=%d", len(base_records))
+    xai_pipeline: FeaturePipeline | None = None
+    if classifier.requires_sequence_features:
+        xai_pipeline = _build_xai_pipeline(samples, resolved_device)
+        prediction_bundle = xai_pipeline.transform(samples, Split.TEST)
+        logger.info(
+            "sequence prediction bundle selected for checkpoint: kept=%d",
+            prediction_bundle.n_samples,
+        )
+    else:
+        prediction_bundle = _build_pooled_bundle(samples, resolved_device)
+        logger.info(
+            "pooled prediction bundle selected for checkpoint: kept=%d",
+            prediction_bundle.n_samples,
+        )
+    prediction = classifier.predict(prediction_bundle)
+    base_records = _base_prediction_records(samples, prediction_bundle, prediction, checkpoint_path)
+    logger.info("prediction complete: kept=%d", len(base_records))
 
     processed = _read_processed_uids(paths.predictions) if resume else set()
     if processed:
         logger.info("resume enabled: already processed=%d", len(processed))
 
     sample_by_uid = {sample.uid: sample for sample in samples}
-    valid_samples = [sample_by_uid[uid] for uid in pooled_bundle.uids if uid in sample_by_uid]
-    xai_pipeline = _build_xai_pipeline(valid_samples, resolved_device)
+    valid_samples = [sample_by_uid[uid] for uid in prediction_bundle.uids if uid in sample_by_uid]
+    if xai_pipeline is None:
+        xai_pipeline = _build_xai_pipeline(valid_samples, resolved_device)
     explainer = DialogueFineGrainedXaiExplainer(
         n_steps=xai_steps,
         top_k=xai_top_k,

@@ -7,8 +7,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from contextlib import suppress
 
 from meld_emotion.core.data import RawSample
 from meld_emotion.core.features import FeatureBundle
@@ -57,6 +59,7 @@ class ExperimentRunner:
         train_split: Split = Split.TRAIN,
         eval_split: Split = Split.TEST,
         dropout: ModalityDropout | None = None,
+        metadata: Mapping[str, str] | None = None,
     ) -> None:
         self._name = name
         self._source = source
@@ -70,6 +73,7 @@ class ExperimentRunner:
         self._train_split = train_split
         self._eval_split = eval_split
         self._dropout = dropout
+        self._metadata = dict(metadata or {})
 
     def run(self) -> ExperimentResult:
         try:
@@ -115,25 +119,28 @@ class ExperimentRunner:
         robustness = self._run_robustness(test_bundle, y_test)
         explanation = self._run_explainers(test_bundle, y_test)
 
+        metadata = {
+            **self._metadata,
+            **_classifier_diagnostics(self._classifier),
+            "classifier": type(self._classifier).__name__,
+            "n_train": str(train_bundle.n_samples),
+            "n_test": str(test_bundle.n_samples),
+            "n_train_raw": str(len(train)),
+            "n_test_raw": str(len(test)),
+            "train_split": self._train_split.value,
+            "eval_split": self._eval_split.value,
+            "dropout": (
+                "none"
+                if self._dropout is None
+                else f"p={self._dropout.drop_prob}, seed={self._dropout.seed}"
+            ),
+        }
         result = ExperimentResult(
             name=self._name,
             evaluation=evaluation,
             robustness=robustness,
             explanation=explanation,
-            metadata={
-                "classifier": type(self._classifier).__name__,
-                "n_train": str(train_bundle.n_samples),
-                "n_test": str(test_bundle.n_samples),
-                "n_train_raw": str(len(train)),
-                "n_test_raw": str(len(test)),
-                "train_split": self._train_split.value,
-                "eval_split": self._eval_split.value,
-                "dropout": (
-                    "none"
-                    if self._dropout is None
-                    else f"p={self._dropout.drop_prob}, seed={self._dropout.seed}"
-                ),
-            },
+            metadata=metadata,
         )
         for reporter in self._reporters:
             logger.info("리포터 저장 시작: reporter=%s", type(reporter).__name__)
@@ -217,3 +224,25 @@ def _merge_explanations(reports: Sequence[ExplanationReport]) -> ExplanationRepo
 
 def _metric_summary(metrics: Sequence[MetricResult]) -> str:
     return ", ".join(f"{metric.name}={metric.value:.4f}" for metric in metrics) or "-"
+
+
+def _classifier_diagnostics(classifier: Classifier) -> dict[str, str]:
+    metadata: dict[str, str] = {}
+    gate_stats = getattr(classifier, "last_gate_stats", None)
+    if isinstance(gate_stats, Mapping):
+        for key, value in gate_stats.items():
+            metadata[f"validation_{key}"] = str(value)
+    false_positive_counts = getattr(classifier, "last_false_positive_counts", None)
+    if false_positive_counts is not None:
+        with suppress(TypeError):
+            metadata["validation_false_positive_counts"] = ",".join(
+                str(int(value)) for value in false_positive_counts
+            )
+    calibration_params = getattr(classifier, "calibration_params", None)
+    if isinstance(calibration_params, Mapping):
+        metadata["calibration_params"] = json.dumps(
+            calibration_params,
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    return metadata

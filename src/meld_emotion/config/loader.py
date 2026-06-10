@@ -32,6 +32,9 @@ from meld_emotion.config.schema import (
     DialogueRnnConfig,
     DialogueTrainingSettings,
     DropoutConfig,
+    EnsembleConfig,
+    EnsembleDistillationSettings,
+    EnsembleSettings,
     EstimatorConfig,
     EvaluationConfig,
     ExperimentConfig,
@@ -46,6 +49,11 @@ from meld_emotion.config.schema import (
     MlpConfig,
     ModalityEncoderSettings,
     ModelConfig,
+    MoeConfig,
+    MoeExpertSettings,
+    MoeSettings,
+    NeutralGateSettings,
+    RareExpertSettings,
     ReporterConfig,
     StackingCombinerConfig,
     SuiteConfig,
@@ -87,10 +95,30 @@ def _combiner(data: Mapping[str, Any]) -> CombinerConfig:
 
 def _model(data: Mapping[str, Any]) -> ModelConfig:
     name, rest = _pop_type(data)
-    if "base" in rest:
+    if name != EnsembleConfig.type and "base" in rest:
         rest["base"] = _estimator(rest["base"])
     if "combiner" in rest:
         rest["combiner"] = _combiner(rest["combiner"])
+    if name == EnsembleConfig.type:
+        if "base" in rest:
+            rest["base"] = _model(rest["base"])
+        if "ensemble" in rest:
+            ensemble_data = dict(rest["ensemble"])
+            if "distillation" in ensemble_data:
+                ensemble_data["distillation"] = EnsembleDistillationSettings(
+                    **ensemble_data["distillation"]
+                )
+            rest["ensemble"] = EnsembleSettings(**ensemble_data)
+    if name == MoeConfig.type and "moe" in rest:
+        moe_data = dict(rest["moe"])
+        if "experts" in moe_data:
+            moe_data["experts"] = MoeExpertSettings(**moe_data["experts"])
+        if "rare_expert" in moe_data:
+            rare_data = dict(moe_data["rare_expert"])
+            if "target_classes" in rare_data:
+                rare_data["target_classes"] = tuple(int(v) for v in rare_data["target_classes"])
+            moe_data["rare_expert"] = RareExpertSettings(**rare_data)
+        rest["moe"] = MoeSettings(**moe_data)
     if name == DialogueRnnConfig.type:
         if "modality_encoder" in rest:
             rest["modality_encoder"] = ModalityEncoderSettings(**rest["modality_encoder"])
@@ -125,6 +153,8 @@ def _model(data: Mapping[str, Any]) -> ModelConfig:
                     int(v) for v in calibration_data["rare_classes"]
                 )
             rest["calibration"] = CalibrationSettings(**calibration_data)
+        if "neutral_gate" in rest:
+            rest["neutral_gate"] = NeutralGateSettings(**rest["neutral_gate"])
     return MODEL_CONFIGS.create(name, **rest)
 
 

@@ -13,6 +13,7 @@ from meld_emotion.models.calibration import (  # noqa: E402
     PredictionPostprocessor,
     fit_temperature,
     tune_class_thresholds,
+    tune_neutral_emotion_threshold,
 )
 
 
@@ -65,6 +66,31 @@ def test_rare_class_margin_rule_is_deterministic() -> None:
     assert pred.tolist() == [1, 0]
 
 
+def test_neutral_gate_override_is_configurable() -> None:
+    probs = np.asarray([[0.70, 0.20, 0.10], [0.20, 0.60, 0.20]], dtype=np.float64)
+    off = PredictionPostprocessor(CalibrationParams()).predict(probs)
+    on = PredictionPostprocessor(
+        CalibrationParams(
+            neutral_gate_enabled=True,
+            neutral_class_index=0,
+            neutral_emotion_threshold=0.5,
+        )
+    ).predict(probs)
+
+    assert off.tolist() == [0, 1]
+    assert on.tolist() == [0, 1]
+
+    stricter = PredictionPostprocessor(
+        CalibrationParams(
+            neutral_gate_enabled=True,
+            neutral_class_index=0,
+            neutral_emotion_threshold=0.85,
+        )
+    ).predict(probs)
+
+    assert stricter.tolist() == [0, 0]
+
+
 def test_threshold_tuning_returns_one_threshold_per_class() -> None:
     probs = np.asarray([[0.9, 0.1], [0.8, 0.2], [0.2, 0.8], [0.1, 0.9]], dtype=np.float64)
     labels = np.asarray([0, 0, 1, 1], dtype=np.int64)
@@ -73,3 +99,15 @@ def test_threshold_tuning_returns_one_threshold_per_class() -> None:
 
     assert len(thresholds) == 2
     assert all(0.05 <= threshold <= 0.95 for threshold in thresholds)
+
+
+def test_neutral_emotion_threshold_tuning_returns_valid_threshold() -> None:
+    probs = np.asarray(
+        [[0.8, 0.1, 0.1], [0.7, 0.2, 0.1], [0.2, 0.7, 0.1], [0.1, 0.2, 0.7]],
+        dtype=np.float64,
+    )
+    labels = np.asarray([0, 0, 1, 2], dtype=np.int64)
+
+    threshold = tune_neutral_emotion_threshold(probs, labels, neutral_class_index=0)
+
+    assert 0.05 <= threshold <= 0.95

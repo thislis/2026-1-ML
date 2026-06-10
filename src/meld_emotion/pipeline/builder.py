@@ -7,9 +7,11 @@ DIP 의 핵심. 오직 이 모듈만이 모든 구체 구현을 import 하고, �
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Callable, Sequence
 
+from meld_emotion.config.loader import to_dict
 from meld_emotion.config.schema import (
     AudioConceptConfig,
     BowTextConfig,
@@ -24,6 +26,7 @@ from meld_emotion.config.schema import (
     DiskCacheConfig,
     EarlyFusionConfig,
     EmbeddingGemmaTextConfig,
+    EnsembleConfig,
     EstimatorConfig,
     ExperimentConfig,
     ExplainerConfig,
@@ -41,6 +44,7 @@ from meld_emotion.config.schema import (
     MlpConfig,
     ModalityAblationConfig,
     ModelConfig,
+    MoeConfig,
     NearestCentroidConfig,
     NullCacheConfig,
     PermutationConfig,
@@ -124,7 +128,9 @@ from meld_emotion.models.baselines import (
     NearestCentroidEstimator,
     RandomEstimator,
 )
+from meld_emotion.models.ensemble import ArtifactEnsembleClassifier
 from meld_emotion.models.mlp_estimator import MlpEstimator
+from meld_emotion.models.moe import MoeEmotionClassifier
 from meld_emotion.models.sklearn_estimators import (
     KnnEstimator,
     LogisticRegressionEstimator,
@@ -359,6 +365,14 @@ def build_classifier(config: ModelConfig, classes: tuple[Emotion, ...]) -> Class
         from meld_emotion.models.dialogue_rnn import TorchDialogueEmotionClassifier
 
         return TorchDialogueEmotionClassifier(config, classes)
+    if isinstance(config, EnsembleConfig):
+        return ArtifactEnsembleClassifier(
+            build_classifier(config.base, classes),
+            config.ensemble,
+            classes,
+        )
+    if isinstance(config, MoeConfig):
+        return MoeEmotionClassifier(config.moe, classes)
     raise ValueError(f"알 수 없는 모델 설정: {type(config).__name__}")
 
 
@@ -469,6 +483,11 @@ def build_experiment(
         train_split=Split(config.train_split),
         eval_split=Split(config.eval_split),
         dropout=dropout,
+        metadata={
+            "seed": str(config.seed),
+            "output_dir": config.output_dir,
+            "config_snapshot": json.dumps(to_dict(config), ensure_ascii=False, sort_keys=True),
+        },
     )
     logger.info(
         "실험 구성 완료: name=%s metrics=%s scenarios=%s reporters=%d",

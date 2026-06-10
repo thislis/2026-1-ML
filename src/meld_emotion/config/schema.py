@@ -382,13 +382,91 @@ class LateFusionConfig(ModelConfig):
 
 
 @dataclass(frozen=True)
+class EnsembleDistillationSettings:
+    enabled: bool = False
+    teacher: str = "svm"
+    teacher_probs_path: str | None = None
+    temperature: float = 2.0
+    weight: float = 0.3
+
+
+@dataclass(frozen=True)
+class EnsembleSettings:
+    mode: str = "late_logits"
+    alpha: float = 1.0
+    beta: float = 0.5
+    gamma: float = 0.5
+    svm_logits_path: str | None = None
+    logreg_logits_path: str | None = None
+    artifact_format: str = "auto"  # auto | logits | proba
+    distillation: EnsembleDistillationSettings = field(
+        default_factory=EnsembleDistillationSettings
+    )
+
+
+@dataclass(frozen=True)
+class EnsembleConfig(ModelConfig):
+    type: ClassVar[str] = "ensemble"
+    base: ModelConfig = field(default_factory=lambda: DialogueRnnConfig())
+    ensemble: EnsembleSettings = field(default_factory=EnsembleSettings)
+
+
+@dataclass(frozen=True)
+class MoeExpertSettings:
+    text: bool = True
+    audio: bool = True
+    video: bool = True
+    context: bool = True
+    neutral: bool = True
+    rare: bool = True
+    svm_logreg: bool = True
+
+
+@dataclass(frozen=True)
+class RareExpertSettings:
+    enabled: bool = True
+    target_classes: tuple[int, ...] = (5, 6)
+    loss_weight: float = 0.5
+    hard_negative_weight: float = 1.5
+
+
+@dataclass(frozen=True)
+class MoeSettings:
+    enabled: bool = True
+    routing: str = "top2"
+    top_k: int = 2
+    load_balancing_loss_weight: float = 0.01
+    expert_dropout: float = 0.1
+    class_aware_routing: bool = True
+    experts: MoeExpertSettings = field(default_factory=MoeExpertSettings)
+    rare_expert: RareExpertSettings = field(default_factory=RareExpertSettings)
+    svm_logits_path: str | None = None
+    logreg_logits_path: str | None = None
+    artifact_format: str = "auto"
+
+
+@dataclass(frozen=True)
+class MoeConfig(ModelConfig):
+    type: ClassVar[str] = "moe"
+    moe: MoeSettings = field(default_factory=MoeSettings)
+
+
+@dataclass(frozen=True)
 class ModalityEncoderSettings:
     text_input_dim: int = 0
     audio_input_dim: int = 0
     video_input_dim: int = 0
+    encoder_type: str = "rnn"
+    sequence_fallback_policy: str = "pooled"  # pooled | error
     proj_dim: int = 128
     hidden_dim: int = 128
+    num_layers: int = 1
+    num_heads: int = 4
+    conv_kernel_size: int = 15
+    ffn_multiplier: float = 4.0
     dropout: float = 0.2
+    attention_dropout: float = 0.1
+    pooling_type: str = "attentive"
 
 
 @dataclass(frozen=True)
@@ -449,6 +527,7 @@ class DialogueTrainingSettings:
     validation_fraction: float = 0.1
     modality_dropout: float = 0.2
     text_dropout: float = 0.0
+    context_dropout: float = 0.0
     seed: int = 0
     device: str = "cpu"
     best_checkpoint_path: str | None = None
@@ -491,6 +570,15 @@ class CalibrationSettings:
 
 
 @dataclass(frozen=True)
+class NeutralGateSettings:
+    enabled: bool = False
+    threshold: float = 0.5
+    threshold_tuning: bool = False
+    neutral_class_index: int = 0
+    binary_loss_weight: float = 0.0
+
+
+@dataclass(frozen=True)
 class DialogueRnnConfig(ModelConfig):
     type: ClassVar[str] = "dialogue_rnn"
     num_classes: int = 7
@@ -503,11 +591,14 @@ class DialogueRnnConfig(ModelConfig):
     training: DialogueTrainingSettings = field(default_factory=DialogueTrainingSettings)
     loss: LossSettings = field(default_factory=LossSettings)
     calibration: CalibrationSettings = field(default_factory=CalibrationSettings)
+    neutral_gate: NeutralGateSettings = field(default_factory=NeutralGateSettings)
 
 
 MODEL_CONFIGS.add(EarlyFusionConfig.type, EarlyFusionConfig)
 MODEL_CONFIGS.add(LateFusionConfig.type, LateFusionConfig)
 MODEL_CONFIGS.add(DialogueRnnConfig.type, DialogueRnnConfig)
+MODEL_CONFIGS.add(EnsembleConfig.type, EnsembleConfig)
+MODEL_CONFIGS.add(MoeConfig.type, MoeConfig)
 
 
 # --- 평가 ---------------------------------------------------------------------

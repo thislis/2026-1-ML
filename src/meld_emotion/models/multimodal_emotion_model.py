@@ -7,6 +7,7 @@ from torch import nn
 
 from meld_emotion.models.attentive_rnn_encoder import AttentiveRnnEncoder
 from meld_emotion.models.classifier import EmotionClassifierHead
+from meld_emotion.models.conformer_encoder import ConformerEncoder
 from meld_emotion.models.dialogue_context_rnn import DialogueContextRnn
 from meld_emotion.models.gated_multimodal_fusion import GatedMultimodalFusion
 from meld_emotion.models.memory_attention import MemoryAttention
@@ -23,9 +24,16 @@ class MultimodalEmotionModel(nn.Module):
         speaker_vocab_size: int,
         num_classes: int = 7,
         rnn_type: str = "gru",
+        modality_encoder_type: str = "rnn",
         modality_proj_dim: int = 128,
         modality_hidden_dim: int = 128,
+        modality_num_layers: int = 1,
+        modality_num_heads: int = 4,
+        modality_conv_kernel_size: int = 15,
+        modality_ffn_multiplier: float = 4.0,
         modality_dropout: float = 0.2,
+        modality_attention_dropout: float = 0.1,
+        modality_pooling_type: str = "attentive",
         fusion_dim: int = 256,
         fusion_dropout: float = 0.3,
         use_gated_fusion: bool = True,
@@ -47,28 +55,53 @@ class MultimodalEmotionModel(nn.Module):
         classifier_use_memory: bool = True,
         classifier_gate_hidden_dim: int = 128,
         classifier_gate_dropout: float = 0.1,
+        context_state_dropout: float = 0.0,
     ) -> None:
         super().__init__()
-        self.text_encoder = AttentiveRnnEncoder(
+        if not 0.0 <= context_state_dropout <= 1.0:
+            raise ValueError("context_state_dropout must be in [0, 1]")
+        self.context_state_dropout = context_state_dropout
+        self.text_encoder = _build_modality_encoder(
+            modality_encoder_type,
             text_input_dim,
             proj_dim=modality_proj_dim,
             hidden_dim=modality_hidden_dim,
             rnn_type=rnn_type,
+            num_layers=modality_num_layers,
+            num_heads=modality_num_heads,
+            conv_kernel_size=modality_conv_kernel_size,
+            ffn_multiplier=modality_ffn_multiplier,
             dropout=modality_dropout,
+            attention_dropout=modality_attention_dropout,
+            pooling_type=modality_pooling_type,
         )
-        self.audio_encoder = AttentiveRnnEncoder(
+        self.audio_encoder = _build_modality_encoder(
+            modality_encoder_type,
             audio_input_dim,
             proj_dim=modality_proj_dim,
             hidden_dim=modality_hidden_dim,
             rnn_type=rnn_type,
+            num_layers=modality_num_layers,
+            num_heads=modality_num_heads,
+            conv_kernel_size=modality_conv_kernel_size,
+            ffn_multiplier=modality_ffn_multiplier,
             dropout=modality_dropout,
+            attention_dropout=modality_attention_dropout,
+            pooling_type=modality_pooling_type,
         )
-        self.video_encoder = AttentiveRnnEncoder(
+        self.video_encoder = _build_modality_encoder(
+            modality_encoder_type,
             video_input_dim,
             proj_dim=modality_proj_dim,
             hidden_dim=modality_hidden_dim,
             rnn_type=rnn_type,
+            num_layers=modality_num_layers,
+            num_heads=modality_num_heads,
+            conv_kernel_size=modality_conv_kernel_size,
+            ffn_multiplier=modality_ffn_multiplier,
             dropout=modality_dropout,
+            attention_dropout=modality_attention_dropout,
+            pooling_type=modality_pooling_type,
         )
         self.fusion = GatedMultimodalFusion(
             modality_dim=modality_hidden_dim,
@@ -138,6 +171,7 @@ class MultimodalEmotionModel(nn.Module):
         fused, gate = self.fusion(u_t, u_a, u_v, mask)
         context_h = self.context(fused, speaker_id, utterance_mask)
         memory, memory_attn = self.memory(context_h, utterance_mask, speaker_id)
+        context_h, memory = self._apply_context_dropout(context_h, memory, utterance_mask)
         classifier_fused = torch.zeros_like(fused) if ablate_classifier_block == "fused" else fused
         classifier_context = (
             torch.zeros_like(context_h) if ablate_classifier_block == "context" else context_h
@@ -178,3 +212,57 @@ class MultimodalEmotionModel(nn.Module):
                 }
             )
         return output
+
+    def _apply_context_dropout(
+        self,
+        context_h: torch.Tensor,
+        memory: torch.Tensor,
+        utterance_mask: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        if not self.training or self.context_state_dropout <= 0.0:
+            return context_h, memory
+        valid = utterance_mask > 0.0
+        drop = (torch.rand_like(utterance_mask) < self.context_state_dropout) & valid
+        if not bool(drop.any()):
+            return context_h, memory
+        keep = (~drop).to(dtype=context_h.dtype).unsqueeze(-1)
+        return context_h * keep, memory * keep
+
+
+def _build_modality_encoder(
+    encoder_type: str,
+    input_dim: int,
+    *,
+    proj_dim: int,
+    hidden_dim: int,
+    rnn_type: str,
+    num_layers: int,
+    num_heads: int,
+    conv_kernel_size: int,
+    ffn_multiplier: float,
+    dropout: float,
+    attention_dropout: float,
+    pooling_type: str,
+) -> nn.Module:
+    name = encoder_type.lower()
+    if name == "rnn":
+        return AttentiveRnnEncoder(
+            input_dim,
+            proj_dim=proj_dim,
+            hidden_dim=hidden_dim,
+            rnn_type=rnn_type,
+            dropout=dropout,
+        )
+    if name == "conformer":
+        return ConformerEncoder(
+            input_dim,
+            hidden_dim=hidden_dim,
+            num_layers=num_layers,
+            num_heads=num_heads,
+            conv_kernel_size=conv_kernel_size,
+            ffn_multiplier=ffn_multiplier,
+            dropout=dropout,
+            attention_dropout=attention_dropout,
+            pooling_type=pooling_type,
+        )
+    raise ValueError("modality_encoder.encoder_type must be 'rnn' or 'conformer'")
