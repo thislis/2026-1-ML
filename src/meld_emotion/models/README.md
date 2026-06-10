@@ -25,20 +25,39 @@
     학습에서 본 클래스 열만 내는 `predict_proba` 를 **전체 클래스 폭 K** 로 확장하는 일을 담당한다.
 - `xgboost_estimators.py` (완전 구현, `[xgboost]` extra 필요):
   - `XGBoostEstimator`(`xgboost`) — `XGBClassifier(objective="multi:softprob")` baseline.
+- `mlp_estimator.py` (완전 구현, `[deep]` extra 필요):
+  - `MlpEstimator`(`mlp`) — tabular feature matrix 용 PyTorch MLP baseline. class weight,
+    validation split, early stopping, checkpoint 없는 in-memory best state reload 를 지원한다.
 - Dialogue RNN (완전 구현, `[deep]` extra 필요):
   - `attentive_rnn_encoder.py` — 모달리티별 Linear/LayerNorm/Dropout → GRU/LSTM →
     safe masked attention pooling.
+  - `conformer_encoder.py` — `modality_encoder.encoder_type: conformer` 일 때 sequence extractor
+    입력을 Conformer block 으로 인코딩하는 선택 경로.
   - `gated_multimodal_fusion.py` — missing-modality-aware gate, gated sum, interaction feature.
   - `dialogue_context_rnn.py` — speaker embedding 을 붙인 unidirectional dialogue GRU/LSTM.
   - `memory_attention.py` / `rope.py` — causal memory attention, padding mask, relative distance
     bias, same-speaker bias, optional RoPE(q/k only, 기본 off).
   - `multimodal_emotion_model.py` — 위 부품을 묶어 `logits`, modality gate, 각 attention 을 반환.
   - `dialogue_rnn.py` — `Classifier` adapter. `model: {type: dialogue_rnn}` 으로 선택한다.
+- `two_stage.py` (완전 구현):
+  - `TwoStageEmotionClassifier`(`two_stage`) — base `Classifier` 의 7-class 확률을
+    Model 1(Neutral/Non-Neutral)과 Model 2(non-neutral emotion) 판단으로 명시화하는 wrapper.
+    `base` 로 `early`, `late`, `dialogue_rnn`, `ensemble`, `moe` 등 기존 모델을 감쌀 수 있다.
+- `ensemble.py` / `moe.py` (완전 구현):
+  - `ArtifactEnsembleClassifier`(`ensemble`) — base classifier 확률/logit 과 SVM/LogReg artifact 를
+    late-logit 또는 residual correction 방식으로 결합하며, 지원 base 에 teacher distillation 을
+    주입할 수 있다.
+  - `MoeEmotionClassifier`(`moe`) — text/audio/video/context/neutral/rare/artifact expert 를
+    top-k routing 으로 섞는 경량 MoE classifier.
+- `losses.py` / `calibration.py`:
+  - dialogue 학습에서 focal/class-balanced loss, logit adjustment, hard negative mining,
+    temperature scaling, threshold tuning, rare-class margin, neutral gate 설정을 지원한다.
 
-현재 `configs/all_model_w_all_features.yaml` 은 text/audio/video foundation embedding 위에서
-`majority`, `random`, early-fusion baseline, `dialogue_rnn` 을 한 suite 로 비교하는 예시다.
-이 suite 의 `dialogue_rnn.training.best_checkpoint_path` 는 `outputs/best_model.pt` 로 설정되어
-있어 가장 좋은 epoch 의 `model_state_dict`, 설정, speaker vocabulary, feature 차원을 함께 저장한다.
+현재 `configs/meld_sequence_dialogue_rnn.yaml` 은 text/audio/video sequence feature 위에서
+`dialogue_rnn` 의 Conformer modality encoder 경로를 학습하는 raw MELD 예시다.
+이 설정의 `dialogue_rnn.training.best_checkpoint_path` 는
+`outputs/meld_sequence_dialogue_rnn_best.pt` 로 설정되어 있어 가장 좋은 epoch 의
+`model_state_dict`, 설정, speaker vocabulary, feature 차원을 함께 저장한다.
 저장된 checkpoint 는 `TorchDialogueEmotionClassifier.from_checkpoint()` 로 복원되며,
 `meld-emotion infer --mp4 <path> --text <text>` 와 루트 `infer_emotion.py` 가 이 경로를 사용한다.
 

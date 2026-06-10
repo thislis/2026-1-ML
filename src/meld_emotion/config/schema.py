@@ -452,6 +452,14 @@ class MoeConfig(ModelConfig):
 
 
 @dataclass(frozen=True)
+class TwoStageConfig(ModelConfig):
+    type: ClassVar[str] = "two_stage"
+    base: ModelConfig = field(default_factory=lambda: DialogueRnnConfig())
+    neutral_threshold: float = 0.5
+    neutral_label: str = "neutral"
+
+
+@dataclass(frozen=True)
 class ModalityEncoderSettings:
     text_input_dim: int = 0
     audio_input_dim: int = 0
@@ -599,6 +607,7 @@ MODEL_CONFIGS.add(LateFusionConfig.type, LateFusionConfig)
 MODEL_CONFIGS.add(DialogueRnnConfig.type, DialogueRnnConfig)
 MODEL_CONFIGS.add(EnsembleConfig.type, EnsembleConfig)
 MODEL_CONFIGS.add(MoeConfig.type, MoeConfig)
+MODEL_CONFIGS.add(TwoStageConfig.type, TwoStageConfig)
 
 
 # --- 평가 ---------------------------------------------------------------------

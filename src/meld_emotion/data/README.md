@@ -9,6 +9,8 @@
 - `labels.py` — `EmotionLabelEncoder`: `EMOTION_ORDER` 기준 감정 ↔ 정수 인덱스 변환.
 - `synthetic.py` — 합성 데이터셋. 테스트와 예제 실험용.
 - `meld.py` — MELD CSV 또는 baseline pickle metadata(`data_emotion.p`) 기반 데이터셋 소스.
+  CSV 경로에서는 speaker, dialogue/utterance id, raw MP4 path, CSV time span 을 보존하고,
+  metadata pickle 경로에서는 precomputed feature alignment 에 필요한 id/key 를 보존한다.
 - `media.py` — raw media 적재 경계. MP4 오디오는 PyAV(`av`)로 비디오 프레임을 읽지 않고 mono
   waveform 만 적재하고, MP4 비디오는 OpenCV 로 오디오를 추출하지 않고 프레임만 균등 샘플링해
   `(T,H,W,C)` 배열로 적재한다. 두 라이브러리 모두 ffmpeg 를 휠에 번들하므로 시스템 ffmpeg 없이
@@ -56,7 +58,8 @@ dataset:
 
 이 lazy-load 는 해당 모달리티 추출기가 포함된 `FeaturePipeline` 에서만 실행된다. 텍스트만 쓰는
 실험은 av/OpenCV 를 import 하지 않고, 오디오만 쓰는 실험은 비디오 프레임을 읽지 않으며,
-비디오만 쓰는 실험은 오디오 waveform 을 읽지 않는다.
+비디오만 쓰는 실험은 오디오 waveform 을 읽지 않는다. `meld_precomputed` 처럼 이미 계산된
+feature 를 읽는 extractor 는 raw waveform/frame 이 없어도 동작한다.
 
 실험 설정에서는 다음처럼 조정할 수 있다:
 
@@ -80,7 +83,7 @@ media:
 EmbeddingGemma 텍스트 임베딩과 Wav2Vec2 XLS-R 오디오 임베딩으로 MELD.Raw train/test 를 비교하는
 현재 raw suite 는 split별 MP4 폴더를 위 방식으로 지정하고, train split 의 손상된 MP4 1개를
 `media.on_error: drop_sample` 로 제외한다.
-세 모달리티 foundation embedding 을 모두 쓰는 `configs/all_model_w_all_features.yaml` 도 같은
+세 모달리티 sequence feature 를 모두 쓰는 `configs/meld_sequence_dialogue_rnn.yaml` 도 같은
 split별 MP4 경로와 `drop_sample` 정책을 사용하며, 비디오 extractor 가 있을 때만 프레임을
 lazy-load 한다.
 

@@ -57,6 +57,7 @@ from meld_emotion.config.schema import (
     ReporterConfig,
     StackingCombinerConfig,
     SuiteConfig,
+    TwoStageConfig,
 )
 
 
@@ -95,20 +96,19 @@ def _combiner(data: Mapping[str, Any]) -> CombinerConfig:
 
 def _model(data: Mapping[str, Any]) -> ModelConfig:
     name, rest = _pop_type(data)
-    if name != EnsembleConfig.type and "base" in rest:
+    if name in {EnsembleConfig.type, TwoStageConfig.type} and "base" in rest:
+        rest["base"] = _model(rest["base"])
+    elif "base" in rest:
         rest["base"] = _estimator(rest["base"])
     if "combiner" in rest:
         rest["combiner"] = _combiner(rest["combiner"])
-    if name == EnsembleConfig.type:
-        if "base" in rest:
-            rest["base"] = _model(rest["base"])
-        if "ensemble" in rest:
-            ensemble_data = dict(rest["ensemble"])
-            if "distillation" in ensemble_data:
-                ensemble_data["distillation"] = EnsembleDistillationSettings(
-                    **ensemble_data["distillation"]
-                )
-            rest["ensemble"] = EnsembleSettings(**ensemble_data)
+    if name == EnsembleConfig.type and "ensemble" in rest:
+        ensemble_data = dict(rest["ensemble"])
+        if "distillation" in ensemble_data:
+            ensemble_data["distillation"] = EnsembleDistillationSettings(
+                **ensemble_data["distillation"]
+            )
+        rest["ensemble"] = EnsembleSettings(**ensemble_data)
     if name == MoeConfig.type and "moe" in rest:
         moe_data = dict(rest["moe"])
         if "experts" in moe_data:

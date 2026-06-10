@@ -10,8 +10,9 @@ disgust)을 분류하고, **해석 가능한 개념 벡터** `c = [c_T, c_A, c_V
 > 이 저장소는 **아키텍처 골격에서 출발해 실제 MELD raw/precomputed 실험까지 확장된 코드**다.
 > 파이프라인 전체(데이터→특징→융합→분류→평가→설명→리포트)가 합성 데이터로 즉시
 > 실행/테스트되고, MELD CSV/metadata, raw MP4 lazy-load, foundation embedding, sklearn/XGBoost,
-> dialogue-level PyTorch 모델도 설정으로 연결된다. 아직 TF-IDF, sentence embedding, MFCC,
-> visual cue, stacking combiner, disk cache, dashboard rendering 은 placeholder 경계로 남아 있다.
+> dialogue-level PyTorch 모델, ensemble/MoE/two-stage wrapper, calibration 지표도 설정으로
+> 연결된다. 아직 TF-IDF, sentence embedding, MFCC, visual cue, stacking combiner, disk cache,
+> dashboard rendering 은 placeholder 경계로 남아 있다.
 > 현재 상태는 `uv run meld-emotion status` 로 항상 확인할 수 있다.
 
 ## 설계 목표
@@ -27,13 +28,14 @@ disgust)을 분류하고, **해석 가능한 개념 벡터** `c = [c_T, c_A, c_V
 
 ```bash
 uv sync --extra dev                                    # 환경 구성 (numpy + pytest + ruff + mypy)
+uv run meld-emotion run --config configs/default.yaml  # 2-stage Neutral/Emotion 기본 smoke run
 uv run meld-emotion run --config configs/example_synthetic.yaml   # 전체 파이프라인 즉시 실행
 uv run meld-emotion run --config configs/example_synthetic.yaml --log-level DEBUG --log-file outputs/run.log
 uv sync --extra deep                                   # PyTorch dialogue RNN 사용 시
 uv run meld-emotion run --config configs/example_meld_dialogue_rnn.yaml
 uv run meld-emotion compare --config configs/example_suite.yaml   # 여러 실험 비교표(Early/Late 등)
-uv sync --extra text --extra audio --extra video --extra deep      # 세 foundation feature + dialogue 비교 시
-uv run meld-emotion compare --config configs/all_model_w_all_features.yaml
+uv sync --extra text --extra audio --extra video --extra deep      # 세 sequence feature + dialogue RNN 사용 시
+uv run meld-emotion run --config configs/meld_sequence_dialogue_rnn.yaml
 uv sync --extra text --extra audio --extra video --extra deep --extra xai
 uv run meld-emotion run --config configs/example_finegrained_xai.yaml
 uv run meld-emotion infer --mp4 sample.mp4 --text "I am so happy!" --checkpoint outputs/best_model.pt
@@ -47,14 +49,27 @@ uv run mypy src                                        # 정적 타입 검사 (s
 uv run ruff check .                                    # 린트
 ```
 
+가이드 문서의 `scripts/*.py` 형태를 선호하면 같은 기능을 얇은 wrapper 로 실행할 수 있다.
+
+```bash
+uv run python scripts/train.py --config configs/default.yaml
+uv run python scripts/evaluate.py --config configs/default.yaml --checkpoint checkpoints/best.pt
+uv run python scripts/infer.py --checkpoint outputs/best_model.pt --input sample.mp4 --text "I am so happy!" --explain --output outputs/sample_result.json --markdown-output outputs/sample_result.md
+```
+
+`configs/default.yaml` 은 합성 데이터에서 즉시 도는 경량 기본값이며, `model.type: two_stage` 로
+Model 1(Neutral/Non-Neutral) 판단 뒤 Model 2(non-neutral emotion) 판단을 명시한다. 실제 MP4
+foundation feature 실험은 아래 MELD/raw 설정과 `dialogue_rnn`/`two_stage.base` 조합을 사용한다.
+
 `run`/`compare` 는 기본적으로 `INFO` 레벨 진행 로그를 stderr 로 출력한다. 더 자세히 보려면
 `--log-level DEBUG`, 파일에도 남기려면 `--log-file outputs/run.log` 를 추가한다.
 FeaturePipeline 은 raw media 를 chunk 단위로 읽고 최종 feature matrix 만 누적하므로, 큰 MELD MP4
 실험에서도 메모리에 원본 waveform/frame 전체를 오래 붙잡지 않는다.
 
 학습된 dialogue RNN checkpoint 로 단일 MP4+텍스트 감정을 예측하려면 `infer` 를 사용한다.
-기본 checkpoint 는 `outputs/best_model.pt` 이며, `all_model_w_all_features` suite 와 같은
-EmbeddingGemma 텍스트 임베딩, Wav2Vec2 XLS-R 오디오 임베딩, TimeSformer 비디오 임베딩을 쓴다.
+기본 checkpoint 는 `outputs/best_model.pt` 이며, 일반 inference 는 EmbeddingGemma 텍스트 임베딩,
+Wav2Vec2 XLS-R 오디오 임베딩, TimeSformer 비디오 임베딩을 쓴다. `--xai` 를 켜면 BERT token,
+Wav2Vec2 XLS-R sequence, CLIP frame embedding 조합으로 fine-grained XAI 를 계산한다.
 
 ```bash
 uv sync --extra text --extra audio --extra video --extra deep
@@ -64,9 +79,10 @@ uv run meld-emotion infer --mp4 sample.mp4 --text "I am so happy!" --xai --xai-d
 uv run python infer_emotion.py --mp4 sample.mp4 --text "I am so happy!"
 ```
 
-이 경로도 EmbeddingGemma 를 로드하므로 최초 실행 전 Hugging Face 에서
+이 기본 경로는 EmbeddingGemma 를 로드하므로 최초 실행 전 Hugging Face 에서
 `google/embeddinggemma-300m` 라이선스에 동의하고 `uv run huggingface-cli login` 또는 `HF_TOKEN`
-환경변수로 인증해야 한다.
+환경변수로 인증해야 한다. 어떤 checkpoint 를 쓰든 해당 checkpoint 를 만든 extractor 구성과 입력
+차원이 inference extractor 출력 차원과 일치해야 한다.
 `--xai` 를 추가하면 inference 도 `text_token_embeddings`, `audio_wav2vec2_xlsr_sequence`,
 `video_frame_embeddings` sequence feature 로 예측과 fine-grained XAI 를 함께 계산한다. 이 경우
 `uv sync --extra text --extra audio --extra video --extra deep --extra xai` 가 필요하며, checkpoint
@@ -176,17 +192,17 @@ Wav2Vec2 self-attention buffer 용량 부족을 피하기 위해 샘플 전체�
 weighted F1 기준 모달리티별 기여도를 함께 남긴다. 출력 파일은
 `outputs/meld_embeddinggemma_wav2vec2_models.json` 이다.
 
-텍스트·오디오·비디오 세 foundation embedding 과 주요 모델을 함께 비교하려면 다음 suite 를 쓴다.
+텍스트·오디오·비디오 sequence feature 로 raw MELD dialogue 모델을 학습하려면 다음 설정을 쓴다.
 
 ```bash
 uv sync --extra text --extra audio --extra video --extra deep
-uv run meld-emotion compare --config configs/all_model_w_all_features.yaml
+uv run meld-emotion run --config configs/meld_sequence_dialogue_rnn.yaml
 ```
 
-이 suite 는 `text_embeddinggemma`, `audio_wav2vec2_xlsr`, `video_timesformer` 를 함께 사용하고
-`majority`, `random`, early-fusion 계열, `dialogue_rnn` 을 비교한다. 강건성 시나리오는 `full`,
-`no_text`, `no_audio`, `no_video`, `text_only`, `audio_only`, `video_only` 이며 출력 파일은
-`outputs/all_model_w_all_features.json` 이다.
+이 설정은 `text_token_embeddings`, `audio_wav2vec2_xlsr_sequence`, `video_frame_embeddings` 를
+함께 사용하고 `dialogue_rnn` 의 `modality_encoder.encoder_type: conformer` 경로를 학습한다.
+강건성 시나리오는 `full`, `no_text`, `no_audio`, `no_video` 이며 최고 checkpoint 는
+`outputs/meld_sequence_dialogue_rnn_best.pt` 에 저장된다.
 
 ## Fine-grained Dialogue XAI
 
@@ -265,7 +281,7 @@ DatasetSource → FeaturePipeline(추출기들) → FeatureBundle
 - **무엇이 되어 있나**: `uv run meld-emotion status` 가 [core/status.py](src/meld_emotion/core/status.py)
   레지스트리에서 직접 읽어 REAL / PLACEHOLDER / UNIMPLEMENTED 를 출력한다. 손으로 관리하는
   목록이 아니므로 코드와 어긋나지 않는다.
-  현재 상태 기준 전체 56개 컴포넌트 중 REAL 49개, PLACEHOLDER 7개, UNIMPLEMENTED 0개다.
+  현재 상태 기준 전체 67개 컴포넌트 중 REAL 60개, PLACEHOLDER 7개, UNIMPLEMENTED 0개다.
   `MediaLoader` 는 MP4 오디오 waveform 과 비디오 프레임을 분리해서 lazy-load 한다.
   suite 실행은 같은 dataset/extractor/media signature 를 가진 실험끼리 in-memory feature cache 를
   공유한다. 다만 `DiskFeatureCache` 는 아직 실행 간 영속화가 아닌 인메모리 위임 placeholder 다.

@@ -8,13 +8,13 @@
 
 | 모달리티 | 개념(concept, c_T/c_A/c_V) | 임베딩(embedding) |
 | --- | --- | --- |
-| text | `TextConceptExtractor` ✅ | `BowTextExtractor` ✅ · `EmbeddingGemmaTextExtractor` ✅ · `TfidfTextExtractor` ⚠️ · `SentenceEmbeddingExtractor` ⚠️ |
-| audio | `AudioConceptExtractor` ✅ | `Wav2Vec2XlsrAudioExtractor` ✅ · `MfccAcousticExtractor` ⚠️ |
-| video | `VideoConceptExtractor` ✅ | `TimeSformerVideoExtractor` ✅ · `VideoPrismVideoExtractor` ✅ · `VisualCueExtractor` ⚠️ |
+| text | `TextConceptExtractor` ✅ | `BowTextExtractor` ✅ · `EmbeddingGemmaTextExtractor` ✅ · `TextTokenEmbeddingExtractor` ✅ · `TfidfTextExtractor` ⚠️ · `SentenceEmbeddingExtractor` ⚠️ |
+| audio | `AudioConceptExtractor` ✅ | `Wav2Vec2XlsrAudioExtractor` ✅ · `Wav2Vec2XlsrAudioSequenceExtractor` ✅ · `MfccAcousticExtractor` ⚠️ |
+| video | `VideoConceptExtractor` ✅ | `TimeSformerVideoExtractor` ✅ · `VideoPrismVideoExtractor` ✅ · `VideoFrameEmbeddingExtractor` ✅ · `VisualCueExtractor` ⚠️ |
 
 ✅ 완전 구현 · ⚠️ 임시(placeholder, 결정적 수치 특징 반환 + 경고). 개념 추출기는
 제안서의 해석 가능한 개념 벡터 `c = [c_T, c_A, c_V]` 를 구성한다.
-현재 `meld-emotion status` 기준 feature extractor 는 REAL 9개, PLACEHOLDER 4개다. placeholder 는
+현재 `meld-emotion status` 기준 feature extractor 는 REAL 12개, PLACEHOLDER 4개다. placeholder 는
 `TfidfTextExtractor`, `SentenceEmbeddingExtractor`, `MfccAcousticExtractor`, `VisualCueExtractor`
 이며, 나머지 표의 extractor 는 실제 구현이다.
 

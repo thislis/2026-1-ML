@@ -1,17 +1,54 @@
 # Version History
 
-## current_code_sync
+## ours_v2.5
 
-현재 코드 기준 구현 상태는 `uv run meld-emotion status` 로 확인되며, 전체 56개 컴포넌트 중
-REAL 49개, PLACEHOLDER 7개, UNIMPLEMENTED 0개다. REAL 구현에는 MELD CSV/metadata loader,
-raw MP4 audio/video lazy loader, EmbeddingGemma/Wav2Vec2 XLS-R/TimeSformer/VideoPrism extractor,
-fine-grained sequence extractor, sklearn/XGBoost baseline, dialogue-level PyTorch classifier,
-suite runner, console/JSON/comparison reporter 가 포함된다.
+`ours_v2.5` 는 `ours_v2` 의 raw MELD + foundation embedding 실험을 세 방향으로 확장한 버전이다.
+첫째, text/audio 에 머물던 raw foundation 경로에 video foundation embedding 과 sequence
+extractor 를 붙였다. 둘째, 발화 단위 pooled 예측을 넘어서 token/audio-span/video-frame 단위
+fine-grained XAI 를 `dialogue_rnn` 과 inference 경로에 연결했다. 셋째, 기본 early/late baseline
+외에 dialogue 모델 개선, ensemble/MoE/two-stage wrapper, calibration/loss 설정, suite 캐시 공유를
+추가해 실험 비교와 제출용 설명력을 강화했다.
 
-세 foundation embedding 을 모두 쓰는 최신 raw MELD 비교 설정은 다음이다.
+현재 코드 기준 구현 상태는 `uv run meld-emotion status` 로 확인한다. 이 문서를 갱신한 시점의
+상태는 전체 67개 컴포넌트 중 REAL 60개, PLACEHOLDER 7개, UNIMPLEMENTED 0개다. REAL 구현에는
+MELD CSV/metadata loader, raw MP4 audio/video lazy loader, EmbeddingGemma/Wav2Vec2 XLS-R/
+TimeSformer/VideoPrism extractor, fine-grained sequence extractor, sklearn/XGBoost/MLP baseline,
+dialogue-level PyTorch classifier, ensemble/MoE/two-stage classifier, suite runner,
+console/JSON/comparison reporter 가 포함된다. placeholder 는 TF-IDF, sentence embedding, MFCC,
+visual cue, stacking combiner, disk cache, dashboard HTML rendering 이다.
+
+### ours_v2에서 v2.5로 넘어온 변화
+
+`ours_v2` 는 MELD.Raw CSV/MP4를 직접 읽고 `text_embeddinggemma` + `audio_wav2vec2_xlsr` 로
+early/late fusion baseline 을 비교하는 것이 중심이었다. `ours_v2.5` 는 그 raw-media 기반을
+유지하면서 다음 변경을 더했다.
+
+- video foundation feature: `video_timesformer`, `video_videoprism`, `video_frame_embeddings` 를
+  추가해 raw MP4 프레임도 발화 단위/프레임 단위 feature 로 쓸 수 있게 했다.
+- sequence feature path: `FeatureBundle.sequence_matrices` 와 `FeatureUnit` 을 추가해 pooled
+  `FeatureMatrix (n,D)` 와 sequence `SequenceFeatureMatrix (n,L,D)` 를 함께 보존한다.
+- fine-grained XAI: `dialogue_finegrained_xai` 가 Integrated Gradients 와 ablation 을 사용해
+  token/audio span/video frame, source utterance, modality, classifier block, embedding dimension
+  중요도를 저장한다.
+- inference XAI: `meld-emotion infer --xai` 와 `--xai-dashboard` 가 단일 MP4+텍스트 입력에서도
+  sequence extractor 와 fine-grained XAI 를 재사용한다.
+- 모델 계층 확장: `dialogue_rnn` 에 Conformer encoder 선택지, focal/class-balanced loss,
+  logit adjustment, hard negative mining, calibration, neutral gate 를 추가하고, `ensemble`,
+  `moe`, `two_stage` wrapper 를 등록했다.
+- 평가 확장: 기존 accuracy/F1/recall 외에 `nll`, `brier_score`,
+  `expected_calibration_error`, `classwise_ece`, `confidence_bucket_accuracy`,
+  `high_confidence_wrong` 을 metric registry 에 추가했다.
+- 실행 편의: `configs/default.yaml` 은 `two_stage` 기본 smoke run 이고, `scripts/train.py`,
+  `scripts/evaluate.py`, `scripts/infer.py` wrapper 는 CLI와 같은 기능을 얇게 감싼다.
+- suite cache: dataset/extractors/media/train split/eval split signature 가 같은 실험끼리는
+  `InMemoryFeatureCache` 를 공유해 같은 foundation feature 를 한 suite 안에서 재사용한다.
+
+### 대표 raw foundation/sequence 설정
+
+현재 작업트리에서 raw MELD 세 모달리티를 모두 쓰는 대표 설정은 sequence dialogue run 이다.
 
 ```bash
-/Users/safeailab_macmini/Desktop/2026-1-ML/configs/all_model_w_all_features.yaml
+/Users/safeailab_macmini/Desktop/2026-1-ML/configs/meld_sequence_dialogue_rnn.yaml
 ```
 
 재현 명령은 프로젝트 루트에서 실행한다.
@@ -19,27 +56,20 @@ suite runner, console/JSON/comparison reporter 가 포함된다.
 ```bash
 cd /Users/safeailab_macmini/Desktop/2026-1-ML
 uv sync --extra text --extra audio --extra video --extra deep
-uv run meld-emotion compare --config configs/all_model_w_all_features.yaml
+uv run meld-emotion run --config configs/meld_sequence_dialogue_rnn.yaml
 ```
 
-이 suite 는 `text_embeddinggemma`, `audio_wav2vec2_xlsr`, `video_timesformer` 를 함께 사용하고
-`majority`, `random`, early-fusion baseline, `dialogue_rnn` 을 비교한다. 평가는
-`full`, `no_text`, `no_audio`, `no_video`, `text_only`, `audio_only`, `video_only` 시나리오를
-포함하며, `modality_ablation` 설명기가 weighted F1 하락폭 기준 모달리티 기여도를 저장한다.
-출력 파일은 `outputs/all_model_w_all_features.json` 이다.
+이 설정은 `text_token_embeddings`, `audio_wav2vec2_xlsr_sequence`, `video_frame_embeddings` 를
+함께 사용하고 `dialogue_rnn` 의 Conformer modality encoder 경로를 학습한다. 평가는 `full`,
+`no_text`, `no_audio`, `no_video` 시나리오를 포함하며, 최고 checkpoint 는
+`outputs/meld_sequence_dialogue_rnn_best.pt` 에 저장된다. 여러 모델을 한 번에 비교하는 현재 raw
+foundation suite 는 text/audio 중심의 `configs/meld_embeddinggemma_wav2vec2_suite.yaml` 이다.
 
-suite runner 는 dataset/extractors/media/train split/eval split signature 가 같은 실험끼리
-`InMemoryFeatureCache` 를 공유한다. 따라서 같은 suite 안의 foundation feature 는 가능한 한
-재사용된다. 다만 `DiskFeatureCache` 는 아직 실행 간 영속화가 아니라 인메모리 위임 placeholder 다.
+### Fine-grained Dialogue XAI
 
-## finegrained_xai_v1
-
-`finegrained_xai_v1` 은 `dialogue_rnn` 에서 발화 단위 pooled embedding 보다 아래로 내려가,
-단어/token, 오디오 시간 구간, 비디오 프레임 단위 XAI 를 저장하는 버전이다. 기존
-`FeatureMatrix (n,D)` 는 유지하고, `SequenceFeatureMatrix (n,L,D)` 와 `FeatureUnit` 을 추가해
-`FeatureBundle.sequence_matrices` 로 sequence 특징을 전달한다.
-
-새 extractor 는 다음 세 가지다.
+`ours_v2.5` 의 fine-grained XAI 는 `dialogue_rnn` 에서 발화 단위 pooled embedding 보다 아래로
+내려가 단어/token, 오디오 시간 구간, 비디오 프레임 단위 설명을 저장한다. 새 sequence extractor
+는 다음 세 가지다.
 
 | type | 역할 |
 | --- | --- |
@@ -48,13 +78,13 @@ suite runner 는 dataset/extractors/media/train split/eval split signature 가 �
 | `video_frame_embeddings` | CLIP vision model 로 sampled frame별 embedding 생성 |
 
 `TorchDialogueEmotionClassifier` 는 sequence feature 가 있으면 `[B,N,L,D]` 와 `[B,N,L]` mask 를
-사용하고, 없으면 기존처럼 `[B,N,1,D]` 로 fallback 한다. 모델 forward 에 `return_xai=True` 를
-추가해 `modality_gate`, encoder attention, `memory_attention`, `u_text/u_audio/u_video`, `fused`,
+사용하고, 없으면 기존처럼 `[B,N,1,D]` 로 fallback 한다. 모델 forward 의 `return_xai=True` 경로는
+`modality_gate`, encoder attention, `memory_attention`, `u_text/u_audio/u_video`, `fused`,
 `context_h`, `memory` 를 반환한다. classifier head 에 들어가는 `fused/context/memory` block 은
-block ablation 으로 target logit 변화량을 계산할 수 있다.
+block ablation 으로 target logit 변화량을 계산한다.
 
-새 설명기 `dialogue_finegrained_xai` 는 Captum Integrated Gradients 로 target
-`logits[b,t,c]` attribution 을 계산하고, 같은 attribution tensor 를 다음 해상도로 집계한다.
+`dialogue_finegrained_xai` 는 Captum Integrated Gradients 로 target `logits[b,t,c]` attribution 을
+계산하고, 같은 attribution tensor 를 다음 해상도로 집계한다.
 
 - token/audio-span/video-frame top-k
 - source utterance importance + `memory_attention`
@@ -62,8 +92,6 @@ block ablation 으로 target logit 변화량을 계산할 수 있다.
 - `fused/context/memory` block importance
 - text/audio/video embedding dimension attribution
 
-출력은 JSON, console 요약, dashboard data contract 를 모두 지원한다. 실제 HTML dashboard 렌더링은
-아직 placeholder 이며, dashboard exporter 는 frontend 가 사용할 수 있는 JSON payload 를 저장한다.
 예제 설정은 다음이다.
 
 ```bash
@@ -71,15 +99,18 @@ uv sync --extra text --extra audio --extra video --extra deep --extra xai
 uv run meld-emotion run --config configs/example_finegrained_xai.yaml
 ```
 
-자세한 해석 방법과 dashboard payload 는 `docs/finegrained_xai.md` 에 정리했다.
+전체 결과는 `outputs/finegrained_xai.json`, dashboard data contract 는
+`outputs/finegrained_xai_dashboard.json` 에 저장된다. 실제 HTML dashboard 렌더링은 아직
+placeholder 이며, 현재 exporter 는 frontend 가 사용할 수 있는 JSON payload 를 저장한다. 자세한
+해석 방법과 dashboard payload 는 `docs/finegrained_xai.md` 에 정리했다.
 
 단일 inference 경로도 fine-grained XAI 를 지원한다. `meld-emotion infer --xai` 는 기본 pooled
 extractor 대신 sequence extractor 조합을 사용하고, 감정 분류 결과와 함께 XAI 결과를 console 또는
 JSON 으로 출력한다. `--xai-dashboard <path>` 를 지정하면 단일 입력용 dashboard payload 도 저장한다.
 
-### finegrained_xai_v2_candidates
+### v2.5의 남은 후보
 
-다음 항목은 v2 에서 구현해야 하거나 구현하면 좋은 사항이다.
+다음 항목은 `ours_v2.5` 이후 구현하면 좋은 후속 작업이다.
 
 - EmbeddingGemma/TimeSformer/VideoPrism 내부 token-patch representation 을 직접 노출하는 extractor.
 - 비디오 영역/얼굴 부위 heatmap: patch-level attribution, Grad-CAM, face landmark/region attribution.
@@ -277,7 +308,7 @@ train/dev/test media path 가 실제 파일을 가리키는지 확인한다.
 
 - video feature 는 아직 사용하지 않는다. `video_subdir_*` 는 raw MELD 경로 정합성을 위해 지정돼
   있지만 `ours_v2` extractor 목록에는 video 가 없다. video foundation embedding 은
-  `current_code_sync` 의 `all_model_w_all_features.yaml` 에서 사용한다.
+  `ours_v2.5` 의 `meld_sequence_dialogue_rnn.yaml` 에서 sequence feature 경로로 사용한다.
 - foundation embedding 계산 결과를 실행 간 영속화하는 disk cache 는 아직 placeholder 다.
 - EmbeddingGemma/Wav2Vec2 모델 다운로드와 Hugging Face 접근 권한은 실행 환경에 의존한다.
 - raw audio foundation embedding 은 구현됐지만 MFCC placeholder, visual cue placeholder,
@@ -287,12 +318,15 @@ train/dev/test media path 가 실제 파일을 가리키는지 확인한다.
 
 ## ours_v1
 
-`ours_v1`은 MELD Raw의 CSV/MP4를 직접 전처리해서 특징을 뽑는 버전이 아니라, MELD metadata와 MELD 팀 제공 precomputed feature pickle을 이 프로젝트의 모듈형 파이프라인에 연결해 baseline 모델들과 dialogue-level PyTorch 모델을 비교한 버전이다.
+`ours_v1`은 MELD Raw의 CSV/MP4를 직접 전처리해서 특징을 뽑는 버전이 아니라, MELD metadata와
+MELD 팀 제공 precomputed feature pickle을 이 프로젝트의 모듈형 파이프라인에 연결해 baseline
+모델을 비교하고, 별도 raw-text 설정에서 dialogue-level PyTorch 모델을 확인한 버전이다.
 
-실행 설정은 다음 파일 하나가 기준이다.
+현재 작업트리에서 실행 가능한 대응 설정은 두 파일로 나뉜다.
 
 ```bash
-/Users/safeailab_macmini/Desktop/2026-1-ML/configs/meld_raw_train_test_suite_w_precomputed.yaml
+/Users/safeailab_macmini/Desktop/2026-1-ML/configs/example_meld_precomputed_baselines.yaml
+/Users/safeailab_macmini/Desktop/2026-1-ML/configs/example_meld_raw_train_test_suite.yaml
 ```
 
 재현 명령은 프로젝트 루트에서 실행한다.
@@ -300,10 +334,15 @@ train/dev/test media path 가 실제 파일을 가리키는지 확인한다.
 ```bash
 cd /Users/safeailab_macmini/Desktop/2026-1-ML
 uv sync --extra text --extra deep
-uv run meld-emotion compare --config configs/meld_raw_train_test_suite_w_precomputed.yaml
+uv run meld-emotion compare --config configs/example_meld_precomputed_baselines.yaml
+uv run meld-emotion compare --config configs/example_meld_raw_train_test_suite.yaml
 ```
 
-`text` extra는 scikit-learn baseline에 필요하고, `deep` extra는 `dialogue_rnn`의 PyTorch 학습에 필요하다. 설정상 `dialogue_rnn.training.device`는 `mps`이므로 Apple Silicon MPS가 없거나 불안정하면 YAML에서 `device: cpu`로 바꿔야 한다.
+`text` extra는 scikit-learn baseline에 필요하고, `deep` extra는 raw-text suite 의 `dialogue_rnn`
+학습에 필요하다. `example_meld_raw_train_test_suite.yaml` 의 `dialogue_rnn.training.device` 는
+`mps` 이므로 Apple Silicon MPS가 없거나 불안정하면 YAML에서 `device: cpu` 로 바꿔야 한다.
+아래 상세 결과 표는 예전 통합 suite 실행 결과를 보존한 역사 기록이며, 현재 파일명은 위 두
+설정이 기준이다.
 
 ### 사용 데이터와 경로
 

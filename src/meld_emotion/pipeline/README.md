@@ -7,7 +7,8 @@
 
 - `cache.py` — `InMemoryFeatureCache`·`NullFeatureCache` (완전 구현), `DiskFeatureCache` (임시,
   인메모리로 위임). 추출-1회·재사용-N회. `InMemoryFeatureCache` 는 개별 `FeatureMatrix` 와
-  media chunk 경로의 `FeatureBundle` 캐시를 모두 지원한다.
+  media chunk 경로의 `FeatureBundle` 캐시를 모두 지원한다. suite 실행에서는 dataset/extractor/
+  media/split signature 가 같은 실험끼리 이 캐시를 공유한다.
 - `feature_pipeline.py` — `FeaturePipeline`: 추출기들을 학습 분할로 `fit` 후 임의 분할을
   `FeatureBundle` 로 변환하고 모달리티 가용성 마스크를 구성한다. 오디오/비디오 추출기가 있고
   source path 만 있는 샘플은 특징 추출 전 `MediaLoader` 로 필요한 배열을 lazy-load 한다.
@@ -108,6 +109,8 @@ experiments:                                 # base 위에 차이만
   padding 발화는 loss/evaluation 에서 제외된다.
 - `ExperimentRunner` metadata 는 raw 샘플 수(`n_train_raw`/`n_test_raw`)와 media error policy
   적용 후 실제 feature bundle 샘플 수(`n_train`/`n_test`)를 함께 기록한다.
+- `two_stage`, `ensemble`, `moe` 같은 wrapper/복합 모델도 `build_classifier` 에서 모두
+  `Classifier` 로 조립되므로 runner 의 실행 절차는 동일하다.
 - `meld-emotion run` 과 `meld-emotion compare` 는 기본 `INFO` 로그를 stderr 로 출력하며,
   `--log-level DEBUG` 와 `--log-file <path>` 로 상세 로그와 파일 로그를 켤 수 있다.
 - `meld-emotion infer --mp4 <path> --text <text>` 는 `outputs/best_model.pt` 를 기본 checkpoint 로

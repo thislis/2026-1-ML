@@ -76,9 +76,9 @@ model:
   `audio_wav2vec2_xlsr`, `audio_wav2vec2_xlsr_sequence`, `video_concepts`,
   `video_visual`, `video_timesformer`, `video_videoprism`, `video_frame_embeddings`,
   `meld_precomputed`
-- 모델: `early`, `late`, `dialogue_rnn`
+- 모델: `early`, `late`, `dialogue_rnn`, `ensemble`, `moe`, `two_stage`
 - 기초 학습기: `majority`, `random`, `centroid`, `linear_regression`, `svm`, `logreg`,
-  `random_forest`, `knn`, `xgboost`
+  `random_forest`, `knn`, `xgboost`, `mlp`
 - 결합기: `mean`, `weighted`, `stacking`
 - 설명기: `permutation`, `modality_ablation`, `counterfactual`, `dialogue_finegrained_xai`
 - 캐시: `memory`, `null`, `disk`
@@ -192,10 +192,10 @@ extractors:
     prefer_batched_input: true
 ```
 
-세 foundation embedding 을 모두 쓰는 raw MELD 비교 suite 는
-[configs/all_model_w_all_features.yaml](../../../configs/all_model_w_all_features.yaml) 이다. 이
-suite 는 `text_embeddinggemma`, `audio_wav2vec2_xlsr`, `video_timesformer` 를 함께 쓰고,
-`majority`/`random`/early-fusion baseline/`dialogue_rnn` 을 비교한다.
+세 sequence feature 를 모두 쓰는 raw MELD dialogue 설정은
+[configs/meld_sequence_dialogue_rnn.yaml](../../../configs/meld_sequence_dialogue_rnn.yaml) 이다. 이
+설정은 `text_token_embeddings`, `audio_wav2vec2_xlsr_sequence`, `video_frame_embeddings` 를 함께
+쓰고 `dialogue_rnn` 의 Conformer modality encoder 경로를 학습한다.
 
 Fine-grained dialogue XAI 는 sequence extractor 와 `dialogue_finegrained_xai` 설명기를 함께 쓴다.
 

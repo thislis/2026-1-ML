@@ -100,6 +100,7 @@ def _cmd_infer(
     xai_steps: int,
     xai_top_k: int,
     xai_dashboard: str | None,
+    markdown_output: str | None,
     log_level: str,
     log_file: str | None,
 ) -> int:
@@ -108,6 +109,7 @@ def _cmd_infer(
         dashboard_to_json,
         format_inference_result,
         result_to_json,
+        result_to_markdown,
         run_inference,
     )
 
@@ -127,6 +129,11 @@ def _cmd_infer(
         dashboard_path.parent.mkdir(parents=True, exist_ok=True)
         dashboard_path.write_text(dashboard_to_json(result), encoding="utf-8")
         logger.info("inference XAI dashboard 저장 완료: path=%s", dashboard_path)
+    if markdown_output is not None:
+        markdown_path = Path(markdown_output)
+        markdown_path.parent.mkdir(parents=True, exist_ok=True)
+        markdown_path.write_text(result_to_markdown(result), encoding="utf-8")
+        logger.info("inference Markdown 설명 저장 완료: path=%s", markdown_path)
     print(result_to_json(result) if json_output else format_inference_result(result))
     logger.info(
         "단일 입력 추론 완료: label=%s probability=%.6f", result.label.value, result.probability
@@ -233,6 +240,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--xai-dashboard",
         default=None,
         help="단일 inference dashboard JSON 저장 경로",
+    )
+    infer_parser.add_argument(
+        "--markdown-output",
+        default=None,
+        help="단일 inference 결과와 XAI 설명을 Markdown 으로 저장할 경로",
     )
     infer_parser.add_argument(
         "--json",
@@ -348,6 +360,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.xai_steps,
             args.xai_top_k,
             args.xai_dashboard,
+            args.markdown_output,
             args.log_level,
             args.log_file,
         )

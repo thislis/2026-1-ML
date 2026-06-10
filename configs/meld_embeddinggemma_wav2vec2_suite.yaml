@@ -1,0 +1,71 @@
+name: meld_embeddinggemma_wav2vec2_suite
+metrics: [accuracy, macro_f1, weighted_f1]
+robustness_metric: weighted_f1
+output_path: outputs/meld_embeddinggemma_wav2vec2_models.json
+
+base:
+  train_split: train
+  eval_split: test
+  dataset:
+    type: meld
+    root: MELD.Raw
+    csv_train: train/train_sent_emo.csv
+    csv_dev: dev_sent_emo.csv
+    csv_test: test_sent_emo.csv
+    audio_subdir_train: train/train_splits
+    audio_subdir_dev: dev_splits_complete
+    audio_subdir_test: output_repeated_splits_test
+    video_subdir_train: train/train_splits
+    video_subdir_dev: dev_splits_complete
+    video_subdir_test: output_repeated_splits_test
+  extractors:
+    - type: text_embeddinggemma
+      output_dim: 768
+      prompt_name: Classification
+    - type: audio_wav2vec2_xlsr
+      output_dim: 1024
+      sampling_rate: 16000
+      chunk_seconds: 30.0
+  media:
+    on_error: drop_sample
+    audio_sample_rate: 16000
+    max_audio_seconds: 60.0
+    min_audio_seconds: 0.025
+  evaluation:
+    metrics: [accuracy, macro_f1, weighted_f1]
+    confusion: true
+    scenarios: [full, no_text, no_audio]
+  explainers:
+    - type: modality_ablation
+      metric: weighted_f1
+  cache:
+    type: memory
+  reporters: []
+
+experiments:
+  - name: early_centroid
+    model:
+      type: early
+      base:
+        type: centroid
+      use_concepts: true
+  - name: early_linear_regression
+    model:
+      type: early
+      base:
+        type: linear_regression
+      use_concepts: true
+  - name: early_logreg
+    model:
+      type: early
+      base:
+        type: logreg
+      use_concepts: true
+  - name: late_centroid
+    model:
+      type: late
+      base:
+        type: centroid
+      combiner:
+        type: mean
+

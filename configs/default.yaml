@@ -1,0 +1,49 @@
+# Lightweight default: complete two-stage multimodal pipeline on synthetic data.
+name: default_two_stage_synthetic
+seed: 0
+output_dir: outputs
+
+dataset:
+  type: synthetic
+  n_train: 220
+  n_dev: 40
+  n_test: 80
+  seed: 0
+  with_audio: true
+  with_video: true
+
+extractors:
+  - type: text_concepts
+  - type: text_bow
+    n_features: 48
+  - type: audio_concepts
+  - type: video_concepts
+
+model:
+  type: two_stage
+  neutral_threshold: 0.5
+  neutral_label: neutral
+  base:
+    type: early
+    base:
+      type: centroid
+      temperature: 1.0
+    use_concepts: true
+
+evaluation:
+  metrics: [accuracy, macro_f1, weighted_f1]
+  confusion: true
+  scenarios: [full, no_text, no_audio, no_video]
+
+explainers:
+  - type: modality_ablation
+    metric: macro_f1
+
+cache:
+  type: memory
+
+reporters:
+  - type: console
+  - type: json
+    path: outputs/default_two_stage_result.json
+

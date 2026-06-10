@@ -60,6 +60,7 @@ from meld_emotion.config.schema import (
     TextTokenEmbeddingConfig,
     TfidfConfig,
     TimeSformerVideoConfig,
+    TwoStageConfig,
     VideoConceptConfig,
     VideoFrameEmbeddingConfig,
     VideoPrismConfig,
@@ -137,6 +138,7 @@ from meld_emotion.models.sklearn_estimators import (
     RandomForestEstimator,
     SvmEstimator,
 )
+from meld_emotion.models.two_stage import TwoStageEmotionClassifier
 from meld_emotion.models.xgboost_estimators import XGBoostEstimator
 from meld_emotion.pipeline.cache import (
     DiskFeatureCache,
@@ -373,6 +375,12 @@ def build_classifier(config: ModelConfig, classes: tuple[Emotion, ...]) -> Class
         )
     if isinstance(config, MoeConfig):
         return MoeEmotionClassifier(config.moe, classes)
+    if isinstance(config, TwoStageConfig):
+        return TwoStageEmotionClassifier(
+            build_classifier(config.base, classes),
+            neutral_threshold=config.neutral_threshold,
+            neutral_label=Emotion(config.neutral_label),
+        )
     raise ValueError(f"알 수 없는 모델 설정: {type(config).__name__}")
 
 
