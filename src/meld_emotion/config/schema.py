@@ -465,6 +465,7 @@ class SvmMarginTwoStageConfig(ModelConfig):
     stage1: EstimatorConfig = field(default_factory=lambda: SvmConfig())
     stage2: ModelConfig = field(default_factory=lambda: DialogueRnnConfig())
     margin_threshold: float = 0.25
+    stage1_confidence_threshold: float | None = None
     stage1_use_concepts: bool = True
     neutral_label: str = "neutral"
 

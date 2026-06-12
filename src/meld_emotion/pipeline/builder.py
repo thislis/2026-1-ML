@@ -388,6 +388,7 @@ def build_classifier(config: ModelConfig, classes: tuple[Emotion, ...]) -> Class
             build_classifier(config.stage2, classes),
             classes,
             margin_threshold=config.margin_threshold,
+            stage1_confidence_threshold=config.stage1_confidence_threshold,
             stage1_use_concepts=config.stage1_use_concepts,
             neutral_label=Emotion(config.neutral_label),
         )

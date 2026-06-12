@@ -24,6 +24,7 @@ extractors:
 model:
   type: two_stage_svm_margin
   margin_threshold: 0.25
+  stage1_confidence_threshold: null  # 예: 0.65 로 설정하면 낮은 SVM confidence 샘플을 Stage 2 로 보냄
   stage1_use_concepts: true
   neutral_label: neutral
   stage1:
