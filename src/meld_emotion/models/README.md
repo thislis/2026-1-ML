@@ -83,7 +83,7 @@
 ## Dialogue RNN 설정 메모
 
 - 설치: `uv sync --extra deep`.
-- 예제: `configs/example_meld_dialogue_rnn.yaml`.
+- 예제: `configs/meld_sequence_dialogue_rnn.yaml`.
 - 기존 pooled feature extractor 출력은 발화별 single vector 이므로 wrapper 가 sequence length 1인
   `[B,N,1,D]` 로 변환한다. `SequenceFeatureMatrix` 를 내는 fine-grained extractor 가 있으면
   wrapper 는 `[B,N,L,D]` 와 `[B,N,L]` mask 를 그대로 사용한다.

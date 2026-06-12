@@ -8,7 +8,7 @@ from typing import Self
 
 import numpy as np
 
-from meld_emotion.config.loader import load_config
+from meld_emotion.config.loader import from_dict
 from meld_emotion.config.schema import EnsembleDistillationSettings, EnsembleSettings
 from meld_emotion.core.features import FeatureBundle
 from meld_emotion.core.results import PredictionSet
@@ -190,5 +190,31 @@ def test_artifact_ensemble_distillation_passes_teacher_probs(
 
 
 def test_ensemble_config_loads() -> None:
-    cfg = load_config("configs/conformer_sequence_ensemble.yaml")
+    cfg = from_dict(
+        {
+            "name": "conformer_sequence_ensemble",
+            "dataset": {"type": "synthetic", "n_train": 24, "n_dev": 0, "n_test": 12},
+            "extractors": [
+                {"type": "text_token_embeddings", "output_dim": 32, "max_tokens": 8},
+                {"type": "audio_wav2vec2_xlsr_sequence", "output_dim": 24, "max_steps": 8},
+                {"type": "video_frame_embeddings", "output_dim": 16, "num_frames": 4},
+            ],
+            "model": {
+                "type": "ensemble",
+                "base": {
+                    "type": "dialogue_rnn",
+                    "modality_encoder": {
+                        "encoder_type": "conformer",
+                        "text_input_dim": 32,
+                        "audio_input_dim": 24,
+                        "video_input_dim": 16,
+                        "proj_dim": 16,
+                        "hidden_dim": 16,
+                    },
+                },
+                "ensemble": {"mode": "late_logits", "alpha": 1.0, "beta": 0.5, "gamma": 0.5},
+            },
+            "reporters": [],
+        }
+    )
     assert cfg.model.type == "ensemble"

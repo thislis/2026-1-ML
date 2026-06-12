@@ -178,34 +178,31 @@ def test_yaml_file_roundtrip(tmp_path: Path) -> None:
 def test_example_configs_load() -> None:
     root = Path(__file__).resolve().parents[1] / "configs"
     for name in (
+        "default.yaml",
         "example_synthetic.yaml",
-        "example_meld_early_svm.yaml",
-        "example_meld_dialogue_rnn.yaml",
         "meld_sequence_dialogue_rnn.yaml",
-        "two_stage_svm_dialogue_rnn.yaml",
+        "example_finegrained_xai.yaml",
     ):
         config = load_config(root / name)
         assert isinstance(config, ExperimentConfig)
         assert config.name
 
 
-def test_ablation_core_suite_loads_with_required_experiments() -> None:
+def test_retained_suite_configs_load_with_expected_experiments() -> None:
     root = Path(__file__).resolve().parents[1] / "configs"
-    suite = load_suite(root / "ablation_core.yaml")
-    names = {config.name for config in suite.experiments}
-    assert names == {
-        "text_only_svm",
-        "text_only_logreg",
-        "text_audio_svm",
-        "text_video_svm",
-        "all_svm",
-        "text_only_mlp",
-        "all_mlp",
-        "dialogue_rnn_fused_only",
-        "dialogue_rnn_fused_context",
-        "dialogue_rnn_fused_context_memory",
-        "dialogue_rnn_no_speaker",
-        "dialogue_rnn_no_interaction",
+    synthetic_suite = load_suite(root / "example_suite.yaml")
+    assert {config.name for config in synthetic_suite.experiments} == {
+        "early_centroid",
+        "late_centroid_mean",
+        "early_majority",
+    }
+
+    meld_suite = load_suite(root / "meld_embeddinggemma_wav2vec2_suite.yaml")
+    assert {config.name for config in meld_suite.experiments} == {
+        "early_centroid",
+        "early_linear_regression",
+        "early_logreg",
+        "late_centroid",
     }
 
 

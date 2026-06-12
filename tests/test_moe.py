@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from meld_emotion.config.loader import load_config
+from meld_emotion.config.loader import from_dict
 from meld_emotion.config.schema import MoeSettings, RareExpertSettings
 from meld_emotion.data.labels import EmotionLabelEncoder
 from meld_emotion.models.moe import MoeEmotionClassifier
@@ -34,6 +34,31 @@ def test_moe_classifier_predicts_and_records_routing_metadata(
 
 
 def test_moe_config_loads() -> None:
-    cfg = load_config("configs/conformer_sequence_moe_rare.yaml")
+    cfg = from_dict(
+        {
+            "name": "conformer_sequence_moe_rare",
+            "dataset": {"type": "synthetic", "n_train": 24, "n_dev": 0, "n_test": 12},
+            "extractors": [
+                {"type": "text_concepts"},
+                {"type": "audio_concepts"},
+                {"type": "video_concepts"},
+            ],
+            "model": {
+                "type": "moe",
+                "moe": {
+                    "routing": "top2",
+                    "top_k": 2,
+                    "class_aware_routing": True,
+                    "rare_expert": {
+                        "enabled": True,
+                        "target_classes": [5, 6],
+                        "loss_weight": 0.5,
+                        "hard_negative_weight": 1.5,
+                    },
+                },
+            },
+            "reporters": [],
+        }
+    )
     assert cfg.model.type == "moe"
     assert cfg.model.moe.rare_expert.target_classes == (5, 6)
