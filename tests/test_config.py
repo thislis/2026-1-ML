@@ -90,6 +90,7 @@ def test_svm_margin_two_stage_config_roundtrip() -> None:
             stage1=SvmConfig(C=2.0, kernel="linear"),
             stage2=EarlyFusionConfig(base=LinearRegressionConfig(alpha=0.01)),
             margin_threshold=0.33,
+            stage1_confidence_threshold=0.65,
             stage1_use_concepts=False,
         ),
     )

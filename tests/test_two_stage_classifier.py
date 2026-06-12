@@ -202,18 +202,44 @@ def test_svm_margin_two_stage_low_margin_routes_to_stage2() -> None:
     assert decision.stage1_margin < 0.25
 
 
+def test_svm_margin_two_stage_low_confidence_routes_to_stage2_when_configured() -> None:
+    scores = np.asarray([[3.0, 0.5, 0.4, 0.3, 0.2, 0.1, 0.0]], dtype=np.float64)
+    proba = np.asarray([[0.30, 0.20, 0.15, 0.14, 0.10, 0.06, 0.05]], dtype=np.float64)
+    stage2 = _FixedClassifier(
+        np.asarray([[0.90, 0.05, 0.04, 0.60, 0.10, 0.10, 0.11]], dtype=np.float64)
+    )
+    clf = SvmMarginTwoStageClassifier(
+        lambda n: _FixedEstimator(scores, proba),
+        stage2,
+        EMOTION_ORDER,
+        margin_threshold=0.25,
+        stage1_confidence_threshold=0.50,
+    )
+    prediction = clf.fit(_bundle(1), np.asarray([0], dtype=np.int64)).predict(_bundle(1))
+
+    assert prediction.classes[prediction.y_pred[0]] == Emotion.ANGER
+    decision = clf.last_two_stage_decisions[0]
+    assert decision.stage1_margin > 0.25
+    assert decision.stage1_confidence == pytest.approx(0.30)
+    assert decision.routed_to_stage2 is True
+    assert "confidence" in decision.rationale
+
+
 def test_svm_margin_two_stage_config_roundtrip_and_builds() -> None:
     config = SvmMarginTwoStageConfig(
         stage1=SvmConfig(C=2.0, kernel="linear"),
         stage2=EarlyFusionConfig(base=NearestCentroidConfig()),
         margin_threshold=0.33,
+        stage1_confidence_threshold=0.65,
         stage1_use_concepts=False,
     )
     assert to_dict(config)["type"] == "two_stage_svm_margin"
     assert to_dict(config)["margin_threshold"] == 0.33
+    assert to_dict(config)["stage1_confidence_threshold"] == 0.65
     loaded = load_config("configs/two_stage_svm_dialogue_rnn.yaml")
     assert isinstance(loaded.model, SvmMarginTwoStageConfig)
     assert loaded.model.margin_threshold == 0.25
+    assert loaded.model.stage1_confidence_threshold is None
 
     classifier = build_classifier(config, EMOTION_ORDER)
     assert isinstance(classifier, SvmMarginTwoStageClassifier)

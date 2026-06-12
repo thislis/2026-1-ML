@@ -31,6 +31,7 @@ class TwoStageDecision:
     stage1_margin: float = 0.0
     routed_to_stage2: bool = False
     stage1_model_label: Emotion | None = None
+    stage1_confidence: float = 0.0
 
 
 @real
@@ -172,17 +173,21 @@ class SvmMarginTwoStageClassifier:
         stage2: Classifier,
         classes: tuple[Emotion, ...],
         margin_threshold: float = 0.25,
+        stage1_confidence_threshold: float | None = None,
         stage1_use_concepts: bool = True,
         neutral_label: Emotion = Emotion.NEUTRAL,
     ) -> None:
         if margin_threshold < 0.0:
             raise ValueError("margin_threshold must be non-negative")
+        if stage1_confidence_threshold is not None and not 0.0 <= stage1_confidence_threshold <= 1.0:
+            raise ValueError("stage1_confidence_threshold must be in [0, 1]")
         if neutral_label not in classes:
             raise ValueError(f"neutral_label {neutral_label.value!r} is not in classifier classes")
         self._stage1 = stage1_factory(len(classes))
         self._stage2 = stage2
         self._classes = classes
         self._margin_threshold = margin_threshold
+        self._stage1_confidence_threshold = stage1_confidence_threshold
         self._stage1_use_concepts = stage1_use_concepts
         self._neutral_label = neutral_label
         self._last_decisions: tuple[TwoStageDecision, ...] = ()
@@ -238,7 +243,8 @@ class SvmMarginTwoStageClassifier:
         decisions: list[TwoStageDecision] = []
         for row_idx, uid in enumerate(bundle.uids):
             margin = _top_margin(stage1_scores[row_idx])
-            routed = margin < self._margin_threshold
+            confidence = float(np.max(stage1_proba[row_idx]))
+            routed = self._should_route(margin, confidence)
             stage1_idx = int(np.argmax(stage1_scores[row_idx]))
             stage1_label = self._classes[stage1_idx]
             stage2_row = _non_neutral_distribution(stage2_proba[row_idx], neutral_idx)
@@ -269,10 +275,16 @@ class SvmMarginTwoStageClassifier:
                     final_label=final_label,
                     final_probability=final_probability,
                     margin=margin,
+                    confidence=confidence,
                     routed=routed,
                 )
             )
         return np.vstack(rows).astype(np.float64), tuple(decisions)
+
+    def _should_route(self, margin: float, confidence: float) -> bool:
+        if self._stage1_confidence_threshold is not None:
+            return confidence < self._stage1_confidence_threshold
+        return margin < self._margin_threshold
 
     def _stage1_scores(self, design: FloatArray, fallback: FloatArray) -> FloatArray:
         decision_scores = getattr(self._stage1, "decision_scores", None)
@@ -299,6 +311,7 @@ class SvmMarginTwoStageClassifier:
         final_label: Emotion,
         final_probability: float,
         margin: float,
+        confidence: float,
         routed: bool,
     ) -> TwoStageDecision:
         neutral_probability = float(final_row[neutral_idx])
@@ -309,11 +322,17 @@ class SvmMarginTwoStageClassifier:
             if idx != neutral_idx
         }
         route = "Stage 2" if routed else "Stage 1"
-        rationale = (
-            f"Stage 1 SVM margin={margin:.6f} "
-            f"({'<' if routed else '>='} {self._margin_threshold:.6f}); "
-            f"{route} chose {final_label.value}."
-        )
+        if self._stage1_confidence_threshold is None:
+            criterion = (
+                f"margin={margin:.6f} "
+                f"({'<' if routed else '>='} {self._margin_threshold:.6f})"
+            )
+        else:
+            criterion = (
+                f"confidence={confidence:.6f} "
+                f"({'<' if routed else '>='} {self._stage1_confidence_threshold:.6f})"
+            )
+        rationale = f"Stage 1 SVM {criterion}; {route} chose {final_label.value}."
         return TwoStageDecision(
             uid=uid,
             neutral_probability=neutral_probability,
@@ -327,6 +346,7 @@ class SvmMarginTwoStageClassifier:
             stage1_margin=margin,
             routed_to_stage2=routed,
             stage1_model_label=stage1_label,
+            stage1_confidence=confidence,
         )
 
 
