@@ -6,15 +6,15 @@
 첫째, text/audio 에 머물던 raw foundation 경로에 video foundation embedding 과 sequence
 extractor 를 붙였다. 둘째, 발화 단위 pooled 예측을 넘어서 token/audio-span/video-frame 단위
 fine-grained XAI 를 `dialogue_rnn` 과 inference 경로에 연결했다. 셋째, 기본 early/late baseline
-외에 dialogue 모델 개선, ensemble/MoE/two-stage wrapper, calibration/loss 설정, suite 캐시 공유를
+외에 dialogue 모델 개선, ensemble/MoE/two-stage/SVM-margin two-stage wrapper, calibration/loss 설정, suite 캐시 공유를
 추가해 실험 비교와 제출용 설명력을 강화했다.
 
 현재 코드 기준 구현 상태는 `uv run meld-emotion status` 로 확인한다. 이 문서를 갱신한 시점의
-상태는 전체 67개 컴포넌트 중 REAL 60개, PLACEHOLDER 7개, UNIMPLEMENTED 0개다. REAL 구현에는
+상태는 전체 68개 컴포넌트 중 REAL 61개, PLACEHOLDER 7개, UNIMPLEMENTED 0개다. REAL 구현에는
 MELD CSV/metadata loader, raw MP4 audio/video lazy loader, EmbeddingGemma/Wav2Vec2 XLS-R/
 TimeSformer/VideoPrism extractor, fine-grained sequence extractor, sklearn/XGBoost/MLP baseline,
-dialogue-level PyTorch classifier, ensemble/MoE/two-stage classifier, suite runner,
-console/JSON/comparison reporter 가 포함된다. placeholder 는 TF-IDF, sentence embedding, MFCC,
+dialogue-level PyTorch classifier, ensemble/MoE/two-stage/SVM-margin two-stage classifier,
+suite runner, console/JSON/comparison reporter 가 포함된다. placeholder 는 TF-IDF, sentence embedding, MFCC,
 visual cue, stacking combiner, disk cache, dashboard HTML rendering 이다.
 
 ### ours_v2에서 v2.5로 넘어온 변화

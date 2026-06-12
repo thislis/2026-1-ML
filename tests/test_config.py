@@ -25,6 +25,7 @@ from meld_emotion.config.schema import (
     MfccConfig,
     MlpConfig,
     SvmConfig,
+    SvmMarginTwoStageConfig,
     SyntheticConfig,
     TextConceptConfig,
     TextTokenEmbeddingConfig,
@@ -80,6 +81,19 @@ def test_new_baseline_configs_roundtrip() -> None:
     ):
         config = ExperimentConfig(name="base", model=EarlyFusionConfig(base=base))
         assert from_dict(to_dict(config)) == config
+
+
+def test_svm_margin_two_stage_config_roundtrip() -> None:
+    config = ExperimentConfig(
+        name="svm_margin_two_stage",
+        model=SvmMarginTwoStageConfig(
+            stage1=SvmConfig(C=2.0, kernel="linear"),
+            stage2=EarlyFusionConfig(base=LinearRegressionConfig(alpha=0.01)),
+            margin_threshold=0.33,
+            stage1_use_concepts=False,
+        ),
+    )
+    assert from_dict(to_dict(config)) == config
 
 
 def test_dialogue_ablation_toggles_roundtrip() -> None:
@@ -167,6 +181,7 @@ def test_example_configs_load() -> None:
         "example_meld_early_svm.yaml",
         "example_meld_dialogue_rnn.yaml",
         "meld_sequence_dialogue_rnn.yaml",
+        "two_stage_svm_dialogue_rnn.yaml",
     ):
         config = load_config(root / name)
         assert isinstance(config, ExperimentConfig)

@@ -10,7 +10,7 @@ disgust)을 분류하고, **해석 가능한 개념 벡터** `c = [c_T, c_A, c_V
 > 이 저장소는 **아키텍처 골격에서 출발해 실제 MELD raw/precomputed 실험까지 확장된 코드**다.
 > 파이프라인 전체(데이터→특징→융합→분류→평가→설명→리포트)가 합성 데이터로 즉시
 > 실행/테스트되고, MELD CSV/metadata, raw MP4 lazy-load, foundation embedding, sklearn/XGBoost,
-> dialogue-level PyTorch 모델, ensemble/MoE/two-stage wrapper, calibration 지표도 설정으로
+> dialogue-level PyTorch 모델, ensemble/MoE/two-stage/SVM-margin two-stage wrapper, calibration 지표도 설정으로
 > 연결된다. 아직 TF-IDF, sentence embedding, MFCC, visual cue, stacking combiner, disk cache,
 > dashboard rendering 은 placeholder 경계로 남아 있다.
 > 현재 상태는 `uv run meld-emotion status` 로 항상 확인할 수 있다.
@@ -281,7 +281,7 @@ DatasetSource → FeaturePipeline(추출기들) → FeatureBundle
 - **무엇이 되어 있나**: `uv run meld-emotion status` 가 [core/status.py](src/meld_emotion/core/status.py)
   레지스트리에서 직접 읽어 REAL / PLACEHOLDER / UNIMPLEMENTED 를 출력한다. 손으로 관리하는
   목록이 아니므로 코드와 어긋나지 않는다.
-  현재 상태 기준 전체 67개 컴포넌트 중 REAL 60개, PLACEHOLDER 7개, UNIMPLEMENTED 0개다.
+  현재 상태 기준 전체 68개 컴포넌트 중 REAL 61개, PLACEHOLDER 7개, UNIMPLEMENTED 0개다.
   `MediaLoader` 는 MP4 오디오 waveform 과 비디오 프레임을 분리해서 lazy-load 한다.
   suite 실행은 같은 dataset/extractor/media signature 를 가진 실험끼리 in-memory feature cache 를
   공유한다. 다만 `DiskFeatureCache` 는 아직 실행 간 영속화가 아닌 인메모리 위임 placeholder 다.

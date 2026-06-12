@@ -79,6 +79,17 @@ class _SklearnProbaEstimator(ABC):
         full[:, self._seen] = raw  # 본 클래스 열에만 채우고 나머지는 0
         return full
 
+    def _expand_seen_scores(self, raw: FloatArray, fill_value: float = 0.0) -> FloatArray:
+        values = np.asarray(raw, dtype=np.float64)
+        if values.ndim == 1:
+            if len(self._seen) == 2:
+                values = np.stack([-values, values], axis=1)
+            else:
+                values = values.reshape(-1, 1)
+        full = np.full((values.shape[0], self._full_k()), fill_value, dtype=np.float64)
+        full[:, self._seen] = values
+        return full
+
     def predict(self, x: FloatArray) -> IntArray:
         # 확장된 확률에서 argmax → 전역 클래스 인덱스(누락 클래스는 0 확률이라 선택되지 않음).
         return np.asarray(np.argmax(self.predict_proba(x), axis=1), dtype=np.int64)
@@ -101,8 +112,24 @@ class SvmEstimator(_SklearnProbaEstimator):
 
         return make_pipeline(
             StandardScaler(),
-            SVC(C=self.C, kernel=self.kernel, probability=True, random_state=0),
+            SVC(
+                C=self.C,
+                kernel=self.kernel,
+                probability=True,
+                decision_function_shape="ovr",
+                random_state=0,
+            ),
         )
+
+    def decision_scores(self, x: FloatArray) -> FloatArray:
+        """Return full-width one-vs-rest SVM decision scores for margin routing."""
+
+        model = self._require()
+        raw = np.asarray(
+            model.decision_function(np.asarray(x, dtype=np.float64)),
+            dtype=np.float64,
+        )
+        return self._expand_seen_scores(raw, fill_value=-np.inf)
 
 
 @real

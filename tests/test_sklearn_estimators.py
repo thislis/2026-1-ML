@@ -70,6 +70,16 @@ def test_predict_matches_proba_argmax(cls: type) -> None:
     assert np.array_equal(est.predict(x), np.argmax(est.predict_proba(x), axis=1))
 
 
+def test_svm_decision_scores_full_width_when_classes_missing() -> None:
+    x, y = _xy_missing_top_classes()
+    est = SvmEstimator(n_classes=_N_EMOTIONS).fit(x, y)
+    scores = est.decision_scores(x)
+    assert scores.shape == (y.size, _N_EMOTIONS)
+    assert np.isneginf(scores[:, 5]).all()
+    assert np.isneginf(scores[:, 6]).all()
+    assert np.isfinite(scores[:, :5]).all()
+
+
 @pytest.mark.parametrize("cls", _ALL)
 def test_learns_separable_signal(cls: type) -> None:
     # 레이블에 강하게 상관된 특징이면 학습 정확도가 무작위(0.2)보다 충분히 높아야 한다.
