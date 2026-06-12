@@ -5,9 +5,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from meld_emotion.config.loader import load_config, to_dict
+from meld_emotion.config.loader import from_dict, load_config, to_dict
 from meld_emotion.config.schema import (
     EarlyFusionConfig,
+    ExperimentConfig,
     NearestCentroidConfig,
     SvmConfig,
     SvmMarginTwoStageConfig,
@@ -236,7 +237,7 @@ def test_svm_margin_two_stage_config_roundtrip_and_builds() -> None:
     assert to_dict(config)["type"] == "two_stage_svm_margin"
     assert to_dict(config)["margin_threshold"] == 0.33
     assert to_dict(config)["stage1_confidence_threshold"] == 0.65
-    loaded = load_config("configs/two_stage_svm_dialogue_rnn.yaml")
+    loaded = _svm_margin_dialogue_config()
     assert isinstance(loaded.model, SvmMarginTwoStageConfig)
     assert loaded.model.margin_threshold == 0.25
     assert loaded.model.stage1_confidence_threshold is None
@@ -249,5 +250,84 @@ def test_svm_margin_two_stage_dialogue_rnn_smoke() -> None:
     pytest.importorskip("sklearn", reason="scikit-learn 미설치")
     pytest.importorskip("torch", reason="PyTorch 미설치")
 
-    result = build_experiment(load_config("configs/two_stage_svm_dialogue_rnn.yaml")).run()
+    result = build_experiment(_svm_margin_dialogue_config()).run()
     assert result.evaluation.metric("accuracy") is not None
+
+
+def _svm_margin_dialogue_config() -> ExperimentConfig:
+    return from_dict(
+        {
+            "name": "two_stage_svm_dialogue_rnn",
+            "seed": 0,
+            "dataset": {
+                "type": "synthetic",
+                "n_train": 80,
+                "n_dev": 20,
+                "n_test": 24,
+                "seed": 0,
+                "with_audio": True,
+                "with_video": True,
+            },
+            "extractors": [
+                {"type": "text_concepts"},
+                {"type": "text_bow", "n_features": 64},
+                {"type": "audio_concepts"},
+                {"type": "video_concepts"},
+            ],
+            "model": {
+                "type": "two_stage_svm_margin",
+                "margin_threshold": 0.25,
+                "stage1_confidence_threshold": None,
+                "stage1_use_concepts": True,
+                "neutral_label": "neutral",
+                "stage1": {"type": "svm", "C": 1.0, "kernel": "rbf"},
+                "stage2": {
+                    "type": "dialogue_rnn",
+                    "rnn_type": "gru",
+                    "modality_encoder": {"proj_dim": 64, "hidden_dim": 64, "dropout": 0.1},
+                    "fusion": {
+                        "modality_dim": 64,
+                        "fusion_dim": 128,
+                        "dropout": 0.1,
+                        "use_gated_fusion": True,
+                        "use_interaction_features": True,
+                    },
+                    "dialogue_context": {
+                        "speaker_emb_dim": 16,
+                        "hidden_dim": 128,
+                        "num_layers": 1,
+                        "dropout": 0.1,
+                    },
+                    "memory_attention": {
+                        "enabled": True,
+                        "use_memory": True,
+                        "hidden_dim": 128,
+                        "attn_dim": 128,
+                        "use_rope": False,
+                        "use_relative_distance_bias": True,
+                        "use_same_speaker_bias": True,
+                    },
+                    "classifier": {"hidden_dim": 128, "dropout": 0.1},
+                    "training": {
+                        "lr": 0.0002,
+                        "weight_decay": 0.01,
+                        "gradient_clip_norm": 1.0,
+                        "batch_size": 4,
+                        "max_epochs": 1,
+                        "early_stopping_patience": 1,
+                        "validation_fraction": 0.0,
+                        "modality_dropout": 0.0,
+                        "seed": 0,
+                        "device": "cpu",
+                    },
+                },
+            },
+            "evaluation": {
+                "metrics": ["accuracy", "macro_f1", "weighted_f1"],
+                "confusion": True,
+                "scenarios": ["full", "no_text", "no_audio", "no_video"],
+            },
+            "cache": {"type": "memory"},
+            "reporters": [],
+        }
+    )

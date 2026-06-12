@@ -31,8 +31,6 @@ uv sync --extra dev                                    # 환경 구성 (numpy + 
 uv run meld-emotion run --config configs/default.yaml  # 2-stage Neutral/Emotion 기본 smoke run
 uv run meld-emotion run --config configs/example_synthetic.yaml   # 전체 파이프라인 즉시 실행
 uv run meld-emotion run --config configs/example_synthetic.yaml --log-level DEBUG --log-file outputs/run.log
-uv sync --extra deep                                   # PyTorch dialogue RNN 사용 시
-uv run meld-emotion run --config configs/example_meld_dialogue_rnn.yaml
 uv run meld-emotion compare --config configs/example_suite.yaml   # 여러 실험 비교표(Early/Late 등)
 uv sync --extra text --extra audio --extra video --extra deep      # 세 sequence feature + dialogue RNN 사용 시
 uv run meld-emotion run --config configs/meld_sequence_dialogue_rnn.yaml
@@ -223,9 +221,12 @@ attribution 을 함께 저장한다. JSON 리포트는 `outputs/finegrained_xai.
 는 `outputs/finegrained_xai_dashboard.json` 에 저장된다. 자세한 데이터 흐름과 해석 주의사항은
 [docs/finegrained_xai.md](docs/finegrained_xai.md) 를 참고한다.
 
-실제 MELD 실험 템플릿은 [configs/example_meld_early_svm.yaml](configs/example_meld_early_svm.yaml)
-및 dialogue-level PyTorch 모델용
-[configs/example_meld_dialogue_rnn.yaml](configs/example_meld_dialogue_rnn.yaml) 이다.
+실제 MELD 실험 템플릿은 raw sequence dialogue 모델용
+[configs/meld_sequence_dialogue_rnn.yaml](configs/meld_sequence_dialogue_rnn.yaml) 및
+foundation embedding suite 용
+[configs/meld_embeddinggemma_wav2vec2_suite.yaml](configs/meld_embeddinggemma_wav2vec2_suite.yaml) 이다.
+YAML 작성 규칙과 현재 유지하는 대표 설정 목록은 [configs/YAML_GUIDE.md](configs/YAML_GUIDE.md)
+에 모아 두었다.
 MELD CSV/metadata 로딩, SVM 계열 베이스라인, EmbeddingGemma 텍스트 임베딩,
 Wav2Vec2 XLS-R 오디오 임베딩, TimeSformer/VideoPrism 비디오 임베딩은 구현되어 있고, raw MP4 는
 필요한 스트림만 lazy-load 한다(오디오 extractor 는 waveform 만, 비디오 extractor 는 프레임만
