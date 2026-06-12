@@ -76,7 +76,8 @@ model:
   `audio_wav2vec2_xlsr`, `audio_wav2vec2_xlsr_sequence`, `video_concepts`,
   `video_visual`, `video_timesformer`, `video_videoprism`, `video_frame_embeddings`,
   `meld_precomputed`
-- 모델: `early`, `late`, `dialogue_rnn`, `ensemble`, `moe`, `two_stage`
+- 모델: `early`, `late`, `dialogue_rnn`, `ensemble`, `moe`, `two_stage`,
+  `two_stage_svm_margin`
 - 기초 학습기: `majority`, `random`, `centroid`, `linear_regression`, `svm`, `logreg`,
   `random_forest`, `knn`, `xgboost`, `mlp`
 - 결합기: `mean`, `weighted`, `stacking`

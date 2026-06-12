@@ -460,6 +460,16 @@ class TwoStageConfig(ModelConfig):
 
 
 @dataclass(frozen=True)
+class SvmMarginTwoStageConfig(ModelConfig):
+    type: ClassVar[str] = "two_stage_svm_margin"
+    stage1: EstimatorConfig = field(default_factory=lambda: SvmConfig())
+    stage2: ModelConfig = field(default_factory=lambda: DialogueRnnConfig())
+    margin_threshold: float = 0.25
+    stage1_use_concepts: bool = True
+    neutral_label: str = "neutral"
+
+
+@dataclass(frozen=True)
 class ModalityEncoderSettings:
     text_input_dim: int = 0
     audio_input_dim: int = 0
@@ -608,6 +618,7 @@ MODEL_CONFIGS.add(DialogueRnnConfig.type, DialogueRnnConfig)
 MODEL_CONFIGS.add(EnsembleConfig.type, EnsembleConfig)
 MODEL_CONFIGS.add(MoeConfig.type, MoeConfig)
 MODEL_CONFIGS.add(TwoStageConfig.type, TwoStageConfig)
+MODEL_CONFIGS.add(SvmMarginTwoStageConfig.type, SvmMarginTwoStageConfig)
 
 
 # --- 평가 ---------------------------------------------------------------------

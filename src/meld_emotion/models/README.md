@@ -43,6 +43,9 @@
   - `TwoStageEmotionClassifier`(`two_stage`) — base `Classifier` 의 7-class 확률을
     Model 1(Neutral/Non-Neutral)과 Model 2(non-neutral emotion) 판단으로 명시화하는 wrapper.
     `base` 로 `early`, `late`, `dialogue_rnn`, `ensemble`, `moe` 등 기존 모델을 감쌀 수 있다.
+  - `SvmMarginTwoStageClassifier`(`two_stage_svm_margin`) — Stage 1 7-class SVM 의 top1-top2
+    decision margin 이 충분히 크면 SVM 라벨을 확정하고, 낮은 margin 샘플은 Stage 2 classifier 의
+    기존 non-neutral top-emotion 방식으로 넘긴다.
 - `ensemble.py` / `moe.py` (완전 구현):
   - `ArtifactEnsembleClassifier`(`ensemble`) — base classifier 확률/logit 과 SVM/LogReg artifact 를
     late-logit 또는 residual correction 방식으로 결합하며, 지원 base 에 teacher distillation 을

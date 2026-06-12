@@ -9,6 +9,8 @@ from meld_emotion.config.loader import load_config, to_dict
 from meld_emotion.config.schema import (
     EarlyFusionConfig,
     NearestCentroidConfig,
+    SvmConfig,
+    SvmMarginTwoStageConfig,
     TwoStageConfig,
 )
 from meld_emotion.core.features import FeatureBundle, FeatureMatrix
@@ -21,7 +23,7 @@ from meld_emotion.core.types import (
     IntArray,
     Modality,
 )
-from meld_emotion.models.two_stage import TwoStageEmotionClassifier
+from meld_emotion.models.two_stage import SvmMarginTwoStageClassifier, TwoStageEmotionClassifier
 from meld_emotion.pipeline.builder import build_classifier, build_experiment
 
 
@@ -47,6 +49,24 @@ class _FixedClassifier:
             proba=proba,
             classes=self.classes,
         )
+
+
+class _FixedEstimator:
+    def __init__(self, scores: FloatArray, proba: FloatArray) -> None:
+        self._scores = scores
+        self._proba = proba
+
+    def fit(self, x: FloatArray, y: IntArray) -> _FixedEstimator:
+        return self
+
+    def predict_proba(self, x: FloatArray) -> FloatArray:
+        return self._proba[: x.shape[0]]
+
+    def predict(self, x: FloatArray) -> IntArray:
+        return np.asarray(np.argmax(self.predict_proba(x), axis=1), dtype=np.int64)
+
+    def decision_scores(self, x: FloatArray) -> FloatArray:
+        return self._scores[: x.shape[0]]
 
 
 def _bundle(n: int) -> FeatureBundle:
@@ -112,4 +132,96 @@ def test_two_stage_config_loads_and_builds() -> None:
 
 def test_two_stage_end_to_end_smoke() -> None:
     result = build_experiment(load_config("configs/default.yaml")).run()
+    assert result.evaluation.metric("accuracy") is not None
+
+
+def test_svm_margin_two_stage_confident_stage1_labels_win() -> None:
+    scores = np.asarray(
+        [
+            [3.0, 0.5, 0.4, 0.3, 0.2, 0.1, 0.0],
+            [0.0, 0.5, 0.4, 3.0, 0.2, 0.1, 0.0],
+        ],
+        dtype=np.float64,
+    )
+    proba = np.asarray(
+        [
+            [0.80, 0.05, 0.04, 0.03, 0.03, 0.03, 0.02],
+            [0.05, 0.10, 0.10, 0.60, 0.05, 0.05, 0.05],
+        ],
+        dtype=np.float64,
+    )
+    stage2 = _FixedClassifier(
+        np.asarray(
+            [
+                [0.01, 0.70, 0.10, 0.05, 0.05, 0.05, 0.04],
+                [0.01, 0.70, 0.10, 0.05, 0.05, 0.05, 0.04],
+            ],
+            dtype=np.float64,
+        )
+    )
+    clf = SvmMarginTwoStageClassifier(
+        lambda n: _FixedEstimator(scores, proba),
+        stage2,
+        EMOTION_ORDER,
+        margin_threshold=0.25,
+    )
+    prediction = clf.fit(_bundle(2), np.asarray([0, 3], dtype=np.int64)).predict(_bundle(2))
+
+    assert prediction.classes[prediction.y_pred[0]] == Emotion.NEUTRAL
+    assert prediction.classes[prediction.y_pred[1]] == Emotion.ANGER
+    decisions = clf.last_two_stage_decisions
+    assert decisions[0].stage1_label == "neutral"
+    assert decisions[0].stage1_model_label == Emotion.NEUTRAL
+    assert decisions[0].stage1_margin > 0.25
+    assert decisions[0].routed_to_stage2 is False
+    assert decisions[1].stage1_label == "non_neutral"
+    assert decisions[1].stage1_model_label == Emotion.ANGER
+    assert decisions[1].routed_to_stage2 is False
+
+
+def test_svm_margin_two_stage_low_margin_routes_to_stage2() -> None:
+    scores = np.asarray([[0.40, 0.39, 0.10, 0.05, 0.04, 0.03, 0.02]], dtype=np.float64)
+    proba = np.asarray([[0.40, 0.35, 0.10, 0.05, 0.04, 0.03, 0.03]], dtype=np.float64)
+    stage2 = _FixedClassifier(
+        np.asarray([[0.90, 0.05, 0.04, 0.60, 0.10, 0.10, 0.11]], dtype=np.float64)
+    )
+    clf = SvmMarginTwoStageClassifier(
+        lambda n: _FixedEstimator(scores, proba),
+        stage2,
+        EMOTION_ORDER,
+        margin_threshold=0.25,
+    )
+    prediction = clf.fit(_bundle(1), np.asarray([0], dtype=np.int64)).predict(_bundle(1))
+
+    assert prediction.classes[prediction.y_pred[0]] == Emotion.ANGER
+    decision = clf.last_two_stage_decisions[0]
+    assert decision.stage1_label == "uncertain"
+    assert decision.stage1_model_label == Emotion.NEUTRAL
+    assert decision.stage2_label == Emotion.ANGER
+    assert decision.routed_to_stage2 is True
+    assert decision.stage1_margin < 0.25
+
+
+def test_svm_margin_two_stage_config_roundtrip_and_builds() -> None:
+    config = SvmMarginTwoStageConfig(
+        stage1=SvmConfig(C=2.0, kernel="linear"),
+        stage2=EarlyFusionConfig(base=NearestCentroidConfig()),
+        margin_threshold=0.33,
+        stage1_use_concepts=False,
+    )
+    assert to_dict(config)["type"] == "two_stage_svm_margin"
+    assert to_dict(config)["margin_threshold"] == 0.33
+    loaded = load_config("configs/two_stage_svm_dialogue_rnn.yaml")
+    assert isinstance(loaded.model, SvmMarginTwoStageConfig)
+    assert loaded.model.margin_threshold == 0.25
+
+    classifier = build_classifier(config, EMOTION_ORDER)
+    assert isinstance(classifier, SvmMarginTwoStageClassifier)
+
+
+def test_svm_margin_two_stage_dialogue_rnn_smoke() -> None:
+    pytest.importorskip("sklearn", reason="scikit-learn 미설치")
+    pytest.importorskip("torch", reason="PyTorch 미설치")
+
+    result = build_experiment(load_config("configs/two_stage_svm_dialogue_rnn.yaml")).run()
     assert result.evaluation.metric("accuracy") is not None

@@ -57,6 +57,7 @@ from meld_emotion.config.schema import (
     ReporterConfig,
     StackingCombinerConfig,
     SuiteConfig,
+    SvmMarginTwoStageConfig,
     TwoStageConfig,
 )
 
@@ -98,6 +99,11 @@ def _model(data: Mapping[str, Any]) -> ModelConfig:
     name, rest = _pop_type(data)
     if name in {EnsembleConfig.type, TwoStageConfig.type} and "base" in rest:
         rest["base"] = _model(rest["base"])
+    elif name == SvmMarginTwoStageConfig.type:
+        if "stage1" in rest:
+            rest["stage1"] = _estimator(rest["stage1"])
+        if "stage2" in rest:
+            rest["stage2"] = _model(rest["stage2"])
     elif "base" in rest:
         rest["base"] = _estimator(rest["base"])
     if "combiner" in rest:
