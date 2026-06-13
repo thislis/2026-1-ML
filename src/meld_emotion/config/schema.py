@@ -213,6 +213,17 @@ class PrecomputedMeldFeatureConfig(ExtractorConfig):
     name_prefix: str = ""
 
 
+@dataclass(frozen=True)
+class JinaOmniMultimodalConfig(ExtractorConfig):
+    type: ClassVar[str] = "jina_omni_multimodal"
+    model_name: str = "jinaai/jina-embeddings-v5-omni-small"
+    output_dim: int = 1024
+    batch_size: int = 4
+    task: str = "classification"
+    device: str = "cpu"
+    max_video_frames: int = 8
+
+
 for _ec in (
     TextConceptConfig,
     BowTextConfig,
@@ -230,6 +241,7 @@ for _ec in (
     VideoPrismConfig,
     VideoFrameEmbeddingConfig,
     PrecomputedMeldFeatureConfig,
+    JinaOmniMultimodalConfig,
 ):
     EXTRACTOR_CONFIGS.add(_ec.type, _ec)
 
@@ -547,6 +559,7 @@ class DialogueTrainingSettings:
     modality_dropout: float = 0.2
     text_dropout: float = 0.0
     context_dropout: float = 0.0
+    input_augmentation_scenarios: tuple[str, ...] = ()
     seed: int = 0
     device: str = "cpu"
     best_checkpoint_path: str | None = None
@@ -602,6 +615,7 @@ class DialogueRnnConfig(ModelConfig):
     type: ClassVar[str] = "dialogue_rnn"
     num_classes: int = 7
     rnn_type: str = "gru"
+    input_mode: str = "tri_modal"
     modality_encoder: ModalityEncoderSettings = field(default_factory=ModalityEncoderSettings)
     fusion: FusionSettings = field(default_factory=FusionSettings)
     dialogue_context: DialogueContextSettings = field(default_factory=DialogueContextSettings)

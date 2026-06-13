@@ -28,6 +28,10 @@ class RobustnessEvaluator:
         self._evaluator = evaluator
         self._scenarios = tuple(scenarios)
 
+    @property
+    def scenarios(self) -> tuple[ModalityScenario, ...]:
+        return self._scenarios
+
     def evaluate(
         self, model: Classifier, bundle: FeatureBundle, y_true: IntArray
     ) -> RobustnessReport:

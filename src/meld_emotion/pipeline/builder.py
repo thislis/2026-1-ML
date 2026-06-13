@@ -31,6 +31,7 @@ from meld_emotion.config.schema import (
     ExperimentConfig,
     ExplainerConfig,
     ExtractorConfig,
+    JinaOmniMultimodalConfig,
     JsonReporterConfig,
     KnnConfig,
     LateFusionConfig,
@@ -99,6 +100,7 @@ from meld_emotion.features.audio import (
     Wav2Vec2XlsrAudioExtractor,
     Wav2Vec2XlsrAudioSequenceExtractor,
 )
+from meld_emotion.features.multimodal import JinaOmniMultimodalExtractor
 from meld_emotion.features.precomputed import MeldPrecomputedFeatureExtractor
 from meld_emotion.features.text import (
     BowTextExtractor,
@@ -280,6 +282,15 @@ def build_extractor(config: ExtractorConfig) -> FeatureExtractor:
             modality=Modality(config.modality),
             kind=FeatureKind(config.kind),
             name_prefix=config.name_prefix,
+        )
+    if isinstance(config, JinaOmniMultimodalConfig):
+        return JinaOmniMultimodalExtractor(
+            model_name=config.model_name,
+            output_dim=config.output_dim,
+            batch_size=config.batch_size,
+            task=config.task,
+            device=config.device,
+            max_video_frames=config.max_video_frames,
         )
     raise ValueError(f"알 수 없는 추출기 설정: {type(config).__name__}")
 
@@ -488,6 +499,9 @@ def build_experiment(
         if config.dropout is not None
         else None
     )
+    train_augmentation_scenarios: tuple[str, ...] = ()
+    if isinstance(config.model, DialogueRnnConfig):
+        train_augmentation_scenarios = config.model.training.input_augmentation_scenarios
 
     runner = ExperimentRunner(
         name=config.name,
@@ -502,6 +516,7 @@ def build_experiment(
         train_split=Split(config.train_split),
         eval_split=Split(config.eval_split),
         dropout=dropout,
+        train_augmentation_scenarios=train_augmentation_scenarios,
         metadata={
             "seed": str(config.seed),
             "output_dir": config.output_dir,

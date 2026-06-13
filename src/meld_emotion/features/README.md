@@ -11,6 +11,7 @@
 | text | `TextConceptExtractor` ✅ | `BowTextExtractor` ✅ · `EmbeddingGemmaTextExtractor` ✅ · `TextTokenEmbeddingExtractor` ✅ · `TfidfTextExtractor` ⚠️ · `SentenceEmbeddingExtractor` ⚠️ |
 | audio | `AudioConceptExtractor` ✅ | `Wav2Vec2XlsrAudioExtractor` ✅ · `Wav2Vec2XlsrAudioSequenceExtractor` ✅ · `MfccAcousticExtractor` ⚠️ |
 | video | `VideoConceptExtractor` ✅ | `TimeSformerVideoExtractor` ✅ · `VideoPrismVideoExtractor` ✅ · `VideoFrameEmbeddingExtractor` ✅ · `VisualCueExtractor` ⚠️ |
+| multimodal | - | `JinaOmniMultimodalExtractor` ✅ |
 
 ✅ 완전 구현 · ⚠️ 임시(placeholder, 결정적 수치 특징 반환 + 경고). 개념 추출기는
 제안서의 해석 가능한 개념 벡터 `c = [c_T, c_A, c_V]` 를 구성한다.
@@ -44,6 +45,24 @@ extractors:
     batch_size: 32
     normalize: true
     prompt_name: Classification
+```
+
+`JinaOmniMultimodalExtractor` 는 `jinaai/jina-embeddings-v5-omni-small` 에 텍스트, 오디오,
+비디오를 한 번에 넣어 fused multimodal embedding 을 만든다. 출력은 `Modality.MULTIMODAL`
+하나의 1024차원 `FeatureMatrix` 이며, `output_dim` 은 32/64/128/256/512/768/1024 로 줄일 수
+있다. `device` 는 `cpu`, `mps`, `gpu` 중 하나이고 `gpu` 는 내부에서 `cuda` 로 매핑된다.
+`max_video_frames` 는 Jina 에 넘기는 프레임 수를 제한하는 안전장치이며, MPS 에서는 8 이하를
+권장한다.
+실행 전 `uv sync --extra text --extra audio --extra video --extra deep` 가 필요하다.
+
+```yaml
+extractors:
+  - type: jina_omni_multimodal
+    model_name: jinaai/jina-embeddings-v5-omni-small
+    output_dim: 1024
+    task: classification
+    device: cpu
+    max_video_frames: 8
 ```
 
 `Wav2Vec2XlsrAudioExtractor` 는 `transformers`/PyTorch 로

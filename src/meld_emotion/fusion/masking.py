@@ -29,7 +29,7 @@ class ModalityScenario:
         return modality in self.available
 
 
-_ALL = frozenset(Modality)
+_ALL = frozenset({Modality.TEXT, Modality.AUDIO, Modality.VIDEO})
 
 #: 미리 정의된 강건성 시나리오 (이름 → 시나리오).
 SCENARIOS: dict[str, ModalityScenario] = {

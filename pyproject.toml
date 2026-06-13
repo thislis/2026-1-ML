@@ -10,20 +10,22 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-text = ["scikit-learn>=1.4", "sentence-transformers>=2.6", "transformers>=4.56"]
-audio = ["av>=11", "librosa>=0.10", "soundfile>=0.12", "transformers>=4.56", "torch>=2.2"]
+text = ["scikit-learn>=1.4", "sentence-transformers>=2.6", "transformers>=4.57"]
+audio = ["av>=11", "librosa>=0.10", "soundfile>=0.12", "transformers>=4.57", "torch>=2.5"]
 video = [
     "opencv-python>=4.9",
     "mediapipe>=0.10",
-    "transformers>=4.56",
-    "torch>=2.2",
+    "pillow>=10",
+    "transformers>=4.57",
+    "torch>=2.5",
+    "torchvision>=0.20",
     "jax>=0.4",
     "flax>=0.8",
     "huggingface-hub>=0.24",
     "videoprism @ git+https://github.com/google-deepmind/videoprism.git",
 ]
 xgboost = ["xgboost>=2.0"]
-deep = ["torch>=2.2"]
+deep = ["torch>=2.5", "peft>=0.13"]
 xai = ["captum>=0.7"]
 all = ["meld-emotion[text,audio,video,xgboost,deep,xai]"]
 dev = [

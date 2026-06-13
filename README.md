@@ -34,6 +34,7 @@ uv run meld-emotion run --config configs/example_synthetic.yaml --log-level DEBU
 uv run meld-emotion compare --config configs/example_suite.yaml   # 여러 실험 비교표(Early/Late 등)
 uv sync --extra text --extra audio --extra video --extra deep      # 세 sequence feature + dialogue RNN 사용 시
 uv run meld-emotion run --config configs/meld_sequence_dialogue_rnn.yaml
+uv run meld-emotion run --config configs/meld_jina_omni_dialogue_rnn.yaml # Jina Omni fused multimodal embedding
 uv sync --extra text --extra audio --extra video --extra deep --extra xai
 uv run meld-emotion run --config configs/example_finegrained_xai.yaml
 uv run meld-emotion infer --mp4 sample.mp4 --text "I am so happy!" --checkpoint outputs/best_model.pt

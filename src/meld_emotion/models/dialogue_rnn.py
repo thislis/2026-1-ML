@@ -365,9 +365,9 @@ class TorchDialogueEmotionClassifier:
         memory = self._config.memory_attention
         head = self._config.classifier
         return MultimodalEmotionModel(
-            text_input_dim=self._dims[Modality.TEXT],
-            audio_input_dim=self._dims[Modality.AUDIO],
-            video_input_dim=self._dims[Modality.VIDEO],
+            text_input_dim=self._model_input_dim(Modality.TEXT),
+            audio_input_dim=self._model_input_dim(Modality.AUDIO),
+            video_input_dim=self._model_input_dim(Modality.VIDEO),
             speaker_vocab_size=max(self._speaker_to_id.values(), default=0) + 1,
             num_classes=len(self._classes),
             rnn_type=self._config.rnn_type,
@@ -403,9 +403,27 @@ class TorchDialogueEmotionClassifier:
             classifier_gate_hidden_dim=head.gate_hidden_dim,
             classifier_gate_dropout=head.gate_dropout,
             context_state_dropout=self._config.training.context_dropout,
+            input_mode=self._input_mode(),
         )
 
+    def _model_input_dim(self, modality: Modality) -> int:
+        if self._input_mode() == "multimodal":
+            return self._dims[Modality.MULTIMODAL] if modality == Modality.TEXT else 1
+        return self._dims[modality]
+
     def _infer_dims(self, bundle: FeatureBundle) -> dict[Modality, int]:
+        if self._input_mode() == "multimodal":
+            actual = sum(m.n_features for m in bundle.by_modality(Modality.MULTIMODAL))
+            config_dim = self._config.modality_encoder.text_input_dim
+            if actual == 0:
+                raise ValueError(
+                    "dialogue_rnn input_mode='multimodal' requires a multimodal feature matrix"
+                )
+            if config_dim > 0 and config_dim != actual:
+                raise ValueError(
+                    f"multimodal feature dim mismatch: config={config_dim}, actual={actual}"
+                )
+            return {Modality.MULTIMODAL: actual}
         configured = {
             Modality.TEXT: self._config.modality_encoder.text_input_dim,
             Modality.AUDIO: self._config.modality_encoder.audio_input_dim,
@@ -439,6 +457,8 @@ class TorchDialogueEmotionClassifier:
         groups = _dialogue_groups(utterances)
         max_len = max((len(indices) for indices in groups), default=1)
         n_dialogues = len(groups)
+        if self._input_mode() == "multimodal":
+            return self._build_multimodal_arrays(bundle, y, utterances, groups, max_len, n_dialogues)
 
         text_values, text_row_mask = self._modality_sequence_values(bundle, Modality.TEXT)
         audio_values, audio_row_mask = self._modality_sequence_values(bundle, Modality.AUDIO)
@@ -474,6 +494,59 @@ class TorchDialogueEmotionClassifier:
                 video_mask[dialogue_idx, slot] = video_row_mask[flat_idx]
                 utterance_mask[dialogue_idx, slot] = 1.0
                 modality_mask[dialogue_idx, slot] = self._availability_row(bundle, flat_idx)
+                speaker_id[dialogue_idx, slot] = self._speaker_to_id.get(
+                    utterances[flat_idx].speaker,
+                    0,
+                )
+                if y is not None:
+                    labels[dialogue_idx, slot] = int(y[flat_idx])
+                flat_indices.append((flat_idx, dialogue_idx, slot))
+
+        return _DialogueArrays(
+            text_x=text_x,
+            audio_x=audio_x,
+            video_x=video_x,
+            text_mask=text_mask,
+            audio_mask=audio_mask,
+            video_mask=video_mask,
+            modality_mask=modality_mask,
+            speaker_id=speaker_id,
+            utterance_mask=utterance_mask,
+            labels=labels,
+            flat_indices=tuple(flat_indices),
+        )
+
+    def _build_multimodal_arrays(
+        self,
+        bundle: FeatureBundle,
+        y: IntArray | None,
+        utterances: Sequence[UtteranceSpec],
+        groups: Sequence[Sequence[int]],
+        max_len: int,
+        n_dialogues: int,
+    ) -> _DialogueArrays:
+        dim = self._dims[Modality.MULTIMODAL]
+        values = self._modality_values(bundle, Modality.MULTIMODAL)
+        text_x = np.zeros((n_dialogues, max_len, 1, dim), dtype=np.float32)
+        audio_x = np.zeros((n_dialogues, max_len, 1, 1), dtype=np.float32)
+        video_x = np.zeros((n_dialogues, max_len, 1, 1), dtype=np.float32)
+        text_mask = np.zeros((n_dialogues, max_len, 1), dtype=np.float32)
+        audio_mask = np.zeros((n_dialogues, max_len, 1), dtype=np.float32)
+        video_mask = np.zeros((n_dialogues, max_len, 1), dtype=np.float32)
+        modality_mask = np.zeros((n_dialogues, max_len, 1), dtype=np.float32)
+        speaker_id = np.zeros((n_dialogues, max_len), dtype=np.int64)
+        utterance_mask = np.zeros((n_dialogues, max_len), dtype=np.float32)
+        labels = np.full((n_dialogues, max_len), -100, dtype=np.int64)
+        flat_indices: list[tuple[int, int, int]] = []
+
+        for dialogue_idx, indices in enumerate(groups):
+            for slot, flat_idx in enumerate(indices):
+                text_x[dialogue_idx, slot, 0] = values[flat_idx]
+                text_mask[dialogue_idx, slot, 0] = 1.0
+                modality_mask[dialogue_idx, slot, 0] = self._multimodal_availability_row(
+                    bundle, flat_idx
+                )
+                utterance_mask[dialogue_idx, slot] = 1.0
                 speaker_id[dialogue_idx, slot] = self._speaker_to_id.get(
                     utterances[flat_idx].speaker,
                     0,
@@ -544,6 +617,12 @@ class TorchDialogueEmotionClassifier:
             )
         return policy
 
+    def _input_mode(self) -> str:
+        mode = self._config.input_mode.lower()
+        if mode not in {"tri_modal", "multimodal"}:
+            raise ValueError("dialogue_rnn.input_mode must be 'tri_modal' or 'multimodal'")
+        return mode
+
     @staticmethod
     def _availability_row(bundle: FeatureBundle, row: int) -> np.ndarray:
         result = np.zeros(3, dtype=np.float32)
@@ -556,6 +635,13 @@ class TorchDialogueEmotionClassifier:
             else:
                 result[idx] = 1.0
         return result
+
+    @staticmethod
+    def _multimodal_availability_row(bundle: FeatureBundle, row: int) -> float:
+        avail = bundle.availability.get(Modality.MULTIMODAL)
+        if avail is not None:
+            return 1.0 if bool(avail[row]) else 0.0
+        return 1.0
 
     def _tensor_batch(
         self,
@@ -666,6 +752,8 @@ class TorchDialogueEmotionClassifier:
         )
         for key, modality_idx, weight in specs:
             if weight <= 0.0:
+                continue
+            if modality_idx >= batch["modality_mask"].shape[-1]:
                 continue
             aux_labels = labels.clone()
             aux_labels[batch["modality_mask"][..., modality_idx] <= 0.0] = -100
@@ -990,6 +1078,9 @@ def _require_mapping(checkpoint: Mapping[str, Any], key: str) -> Mapping[str, An
 
 def _dims_from_checkpoint(data: Mapping[str, Any]) -> dict[Modality, int]:
     dims: dict[Modality, int] = {}
+    if Modality.MULTIMODAL.value in data:
+        dims[Modality.MULTIMODAL] = int(data[Modality.MULTIMODAL.value])
+        return dims
     for modality in (Modality.TEXT, Modality.AUDIO, Modality.VIDEO):
         value = data.get(modality.value)
         if value is None:
@@ -1066,7 +1157,7 @@ def _gate_stats(chunks: Sequence[np.ndarray]) -> dict[str, float]:
     if gate.size == 0:
         return {}
     entropy = -(gate * np.log(np.clip(gate, 1.0e-12, 1.0))).sum(axis=1)
-    names = ("text", "audio", "video")
+    names = ("multimodal",) if gate.shape[1] == 1 else ("text", "audio", "video")
     stats: dict[str, float] = {
         "gate_entropy_mean": float(np.mean(entropy)),
         "gate_entropy_std": float(np.std(entropy)),

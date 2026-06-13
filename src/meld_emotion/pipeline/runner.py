@@ -11,8 +11,9 @@ import json
 import logging
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
+from dataclasses import replace
 
-from meld_emotion.core.data import RawSample
+from meld_emotion.core.data import ModalityMask, RawSample
 from meld_emotion.core.features import FeatureBundle
 from meld_emotion.core.protocols import (
     Classifier,
@@ -32,10 +33,10 @@ from meld_emotion.core.results import (
     RobustnessReport,
 )
 from meld_emotion.core.status import real
-from meld_emotion.core.types import Emotion, IntArray, Split
+from meld_emotion.core.types import Emotion, IntArray, Modality, Split
 from meld_emotion.evaluation.evaluator import Evaluator
 from meld_emotion.evaluation.robustness import RobustnessEvaluator
-from meld_emotion.fusion.masking import ModalityDropout
+from meld_emotion.fusion.masking import ModalityDropout, ModalityScenario, get_scenario
 from meld_emotion.pipeline.feature_pipeline import FeaturePipeline
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,7 @@ class ExperimentRunner:
         train_split: Split = Split.TRAIN,
         eval_split: Split = Split.TEST,
         dropout: ModalityDropout | None = None,
+        train_augmentation_scenarios: Sequence[str] = (),
         metadata: Mapping[str, str] | None = None,
     ) -> None:
         self._name = name
@@ -73,6 +75,7 @@ class ExperimentRunner:
         self._train_split = train_split
         self._eval_split = eval_split
         self._dropout = dropout
+        self._train_augmentation_scenarios = tuple(train_augmentation_scenarios)
         self._metadata = dict(metadata or {})
 
     def run(self) -> ExperimentResult:
@@ -92,6 +95,15 @@ class ExperimentRunner:
         train = list(self._source.load(self._train_split))
         test = list(self._source.load(self._eval_split))
         logger.info("데이터 적재 완료: train=%d eval=%d", len(train), len(test))
+        n_train_raw = len(train)
+        if self._train_augmentation_scenarios:
+            train = _augment_samples_for_scenarios(train, self._train_augmentation_scenarios)
+            logger.info(
+                "학습 입력 시나리오 증강 적용: raw=%d augmented=%d scenarios=%s",
+                n_train_raw,
+                len(train),
+                ",".join(self._train_augmentation_scenarios),
+            )
 
         logger.info("학습 특징 추출 시작")
         train_bundle = self._features.fit_transform(train, self._train_split)
@@ -116,7 +128,7 @@ class ExperimentRunner:
         logger.info("평가 시작: scenario=full")
         evaluation = self._evaluator.evaluate(self._classifier, test_bundle, y_test, "full")
         logger.info("평가 완료: %s", _metric_summary(evaluation.metrics))
-        robustness = self._run_robustness(test_bundle, y_test)
+        robustness = self._run_robustness(test, test_bundle, y_test)
         explanation = self._run_explainers(test_bundle, y_test)
 
         metadata = {
@@ -125,7 +137,8 @@ class ExperimentRunner:
             "classifier": type(self._classifier).__name__,
             "n_train": str(train_bundle.n_samples),
             "n_test": str(test_bundle.n_samples),
-            "n_train_raw": str(len(train)),
+            "n_train_raw": str(n_train_raw),
+            "n_train_augmented_raw": str(len(train)),
             "n_test_raw": str(len(test)),
             "train_split": self._train_split.value,
             "eval_split": self._eval_split.value,
@@ -149,10 +162,36 @@ class ExperimentRunner:
         logger.info("실험 완료: %s", self._name)
         return result
 
-    def _run_robustness(self, bundle: FeatureBundle, y_true: IntArray) -> RobustnessReport | None:
+    def _run_robustness(
+        self, samples: Sequence[RawSample], bundle: FeatureBundle, y_true: IntArray
+    ) -> RobustnessReport | None:
         if self._robustness is None:
             logger.info("강건성 평가 건너뜀: scenarios 없음")
             return None
+        if _has_multimodal_features(bundle):
+            logger.info("강건성 평가 시작: 입력 시나리오별 재임베딩")
+            reports = []
+            for scenario in self._robustness.scenarios:
+                logger.info("강건성 재임베딩 시작: scenario=%s", scenario.name)
+                scenario_samples = _samples_for_scenario(samples, scenario)
+                scenario_bundle = (
+                    bundle
+                    if scenario.name == "full"
+                    else self._features.transform(scenario_samples, self._eval_split)
+                )
+                scenario_y = self._labels_for_bundle(samples, scenario_bundle)
+                reports.append(
+                    self._evaluator.evaluate(
+                        self._classifier,
+                        scenario_bundle,
+                        scenario_y,
+                        scenario.name,
+                    )
+                )
+                logger.info("강건성 재임베딩 완료: scenario=%s", scenario.name)
+            report = RobustnessReport(reports=tuple(reports))
+            logger.info("강건성 평가 완료: scenarios=%d", len(report.reports))
+            return report
         logger.info("강건성 평가 시작")
         report = self._robustness.evaluate(self._classifier, bundle, y_true)
         logger.info("강건성 평가 완료: scenarios=%d", len(report.reports))
@@ -246,3 +285,50 @@ def _classifier_diagnostics(classifier: Classifier) -> dict[str, str]:
             sort_keys=True,
         )
     return metadata
+
+
+def _has_multimodal_features(bundle: FeatureBundle) -> bool:
+    return bool(bundle.by_modality(Modality.MULTIMODAL))
+
+
+def _samples_for_scenario(
+    samples: Sequence[RawSample],
+    scenario: ModalityScenario,
+    *,
+    identity_prefix: str | None = None,
+    dialogue_offset: int = 0,
+) -> list[RawSample]:
+    result: list[RawSample] = []
+    for sample in samples:
+        available = tuple(mod for mod in sample.mask.available if scenario.has(mod))
+        uid = sample.uid if identity_prefix is None else f"{identity_prefix}:{sample.uid}"
+        result.append(
+            replace(
+                sample,
+                uid=uid,
+                dialogue_id=sample.dialogue_id + dialogue_offset,
+                mask=ModalityMask.of(*available),
+            )
+        )
+    return result
+
+
+def _augment_samples_for_scenarios(
+    samples: Sequence[RawSample], scenario_names: Sequence[str]
+) -> list[RawSample]:
+    augmented = list(samples)
+    if not samples:
+        return augmented
+    max_dialogue = max(sample.dialogue_id for sample in samples)
+    stride = max_dialogue + 1
+    for index, name in enumerate(scenario_names, start=1):
+        scenario = get_scenario(name)
+        augmented.extend(
+            _samples_for_scenario(
+                samples,
+                scenario,
+                identity_prefix=scenario.name,
+                dialogue_offset=stride * index,
+            )
+        )
+    return augmented
