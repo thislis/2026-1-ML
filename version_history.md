@@ -1,5 +1,129 @@
 # Version History
 
+## ours_v3pre
+
+`ours_v3pre` 는 `ours_v2.5` 의 tri-modal raw/sequence pipeline 위에 **fused multimodal
+embedding** 경로를 추가한 pre-release 버전이다. 핵심 변화는
+`jinaai/jina-embeddings-v5-omni-small` 을 사용하는 `jina_omni_multimodal` extractor 와,
+그 단일 `Modality.MULTIMODAL` feature 를 dialogue-level 모델에 바로 넣는
+`dialogue_rnn.input_mode: multimodal` 이다. 즉, v2.5 가 text/audio/video 를 각각 추출한 뒤
+모델 내부에서 fusion 했다면, v3pre 는 foundation model 단계에서 텍스트·오디오·비디오를 먼저
+하나의 1024차원 embedding 으로 합치고, 그 embedding sequence 를 dialogue context/memory/classifier
+로 학습하는 경로를 열었다.
+
+현재 코드 기준 구현 상태는 `uv run meld-emotion status` 로 확인한다. 이 문서를 갱신한 시점의
+상태는 전체 69개 컴포넌트 중 REAL 62개, PLACEHOLDER 7개, UNIMPLEMENTED 0개다. `ours_v2.5`
+대비 REAL 구현이 하나 늘었고, 새 REAL 컴포넌트는
+`features.multimodal.jina_omni.JinaOmniMultimodalExtractor` 이다. 기존 placeholder 경계는
+TF-IDF, sentence embedding, MFCC, visual cue, stacking combiner, disk cache, dashboard HTML
+rendering 으로 유지된다.
+
+### v2.5에서 v3pre로 넘어온 변화
+
+- fused multimodal extractor: `jina_omni_multimodal` 을 추가해 텍스트, 오디오 waveform/path,
+  비디오 frame/path 를 SentenceTransformers remote-code Jina Omni 모델에 함께 전달한다.
+- multimodal feature type: `Modality.MULTIMODAL` 을 도메인 enum 과 `MODALITY_ORDER`,
+  `FeatureBundle.availability` 흐름에 추가했다.
+- dialogue model single-stream mode: `dialogue_rnn.input_mode: multimodal` 을 추가해
+  tri-modal encoder/gated fusion 대신 하나의 multimodal encoder 출력이 dialogue GRU/LSTM,
+  memory attention, classifier 로 들어가게 했다.
+- missing-modality 재임베딩: multimodal feature 가 있는 강건성 평가는 기존 feature mask만 바꾸는
+  대신 `no_text`, `no_audio`, `no_video` raw sample 을 다시 만들어 extractor 를 재실행한다.
+- 학습 입력 증강: `training.input_augmentation_scenarios` 로 missing-modality sample 을 train set 에
+  복제하고, UID/dialogue id 를 분리해 Jina embedding 을 다시 계산할 수 있게 했다.
+- cache 안정화: feature cache key 에 UID 뿐 아니라 sample modality mask digest 를 포함해, 같은
+  UID라도 full/no_audio/no_video 시나리오 feature 가 섞이지 않게 했다.
+- media loading 보강: extractor 가 `required_modalities` 를 선언하면 자신의 출력 modality 가
+  `MULTIMODAL` 이어도 `FeaturePipeline` 이 필요한 audio/video stream 을 lazy-load 한다.
+- 의존성 정리: Jina Omni 경로를 위해 `transformers>=4.57`, `torch>=2.5`, `torchvision`,
+  `pillow`, `peft`, `soundfile` 조합을 optional extra 에 반영했다.
+
+### 대표 v3pre 설정
+
+현재 작업트리에서 fused multimodal raw MELD 실험을 실행하는 대표 설정은 다음이다.
+
+```bash
+/Users/safeailab_macmini/Desktop/2026-1-ML/configs/meld_jina_omni_dialogue_rnn.yaml
+```
+
+재현 명령은 프로젝트 루트에서 실행한다.
+
+```bash
+cd /Users/safeailab_macmini/Desktop/2026-1-ML
+uv sync --extra text --extra audio --extra video --extra deep
+uv run meld-emotion run --config configs/meld_jina_omni_dialogue_rnn.yaml
+```
+
+이 설정은 MELD.Raw 의 train/test CSV 와 split별 MP4 폴더를 사용하고, extractor 는 하나만 둔다.
+
+```yaml
+extractors:
+  - type: jina_omni_multimodal
+    model_name: jinaai/jina-embeddings-v5-omni-small
+    output_dim: 1024
+    batch_size: 1
+    task: classification
+    device: cpu
+    max_video_frames: 8
+```
+
+모델은 다음처럼 `input_mode: multimodal` 로 둔다. 이때 fused embedding 차원은
+`modality_encoder.text_input_dim` 에 적거나 `0` 으로 두어 train bundle 에서 자동 추론할 수 있다.
+
+```yaml
+model:
+  type: dialogue_rnn
+  input_mode: multimodal
+  modality_encoder:
+    encoder_type: rnn
+    text_input_dim: 1024
+  training:
+    input_augmentation_scenarios: [no_text, no_audio, no_video]
+```
+
+평가는 `full`, `no_text`, `no_audio`, `no_video` 시나리오를 포함한다. multimodal feature 는 이미
+foundation model 내부에서 융합된 결과이므로, missing-modality 평가는 feature matrix 일부를 0으로
+가리는 방식만으로는 충분하지 않다. 그래서 runner 는 각 시나리오별로 raw sample mask 를 바꾸고
+Jina Omni embedding 을 다시 추출한다.
+
+### 구현할 때의 코드 경로
+
+README 기준으로 새 기능을 넣을 때는 다음 순서를 따른다.
+
+1. Protocol 을 만족하는 구현체를 해당 패키지에 추가한다. 예를 들어 새 extractor 는
+   `features/` 아래에서 `BaseFeatureExtractor` 를 상속하고 `FeatureMatrix` 또는
+   `SequenceFeatureMatrix` 를 반환한다.
+2. 설정 dataclass 를 `src/meld_emotion/config/schema.py` 에 추가하고 registry 에 등록한다.
+3. YAML 복원이 필요한 중첩 설정이면 `src/meld_emotion/config/loader.py` 에 tuple/dataclass 복원
+   로직을 추가한다.
+4. 구성 루트인 `src/meld_emotion/pipeline/builder.py` 에 설정에서 실제 객체를 만드는 분기를
+   추가한다.
+5. 실행 절차가 바뀌면 `src/meld_emotion/pipeline/runner.py`, feature 조립이 바뀌면
+   `src/meld_emotion/pipeline/feature_pipeline.py`, 모델 입력 계약이 바뀌면 `models/` 쪽을
+   최소 범위로 수정한다.
+6. `tests/` 에 config roundtrip, builder 연결, feature shape, runner scenario/cache 동작,
+   모델 smoke test 를 추가하고 `uv run python -m pytest -q` 로 회귀를 확인한다.
+
+`ours_v3pre` 의 Jina Omni 추가도 이 경로를 따른다. 설정은 `JinaOmniMultimodalConfig`, 빌더 연결은
+`build_extractor`, 모델 계약은 `DialogueRnnConfig.input_mode`, 실행 절차는
+`ExperimentRunner` 의 train augmentation 과 multimodal robustness 재임베딩에 들어갔다. 관련
+테스트는 `tests/test_jina_omni_multimodal.py`, `tests/test_dialogue_rnn_multimodal.py`,
+`tests/test_config.py` 에 분산되어 있다.
+
+### v3pre의 남은 후보
+
+`ours_v3pre` 는 이름 그대로 pre-release 이며, 다음 항목은 후속 검증 또는 확장 후보로 남아 있다.
+
+- 실제 MELD.Raw 전체에서 Jina Omni run 의 정량 결과와 v2.5 sequence/dialogue 모델 비교표 기록.
+- Jina Omni fused embedding 에 대한 fine-grained XAI: 현재는 단일 fused vector 단위 설명이
+  중심이고 token/audio-span/frame 내부 attribution 은 v2.5 sequence extractor 경로가 더 직접적이다.
+- 실행 간 feature 재사용을 위한 `DiskFeatureCache` 실제 구현. Jina Omni 재임베딩 비용이 크므로
+  v3pre 이후 우선순위가 높다.
+- `device: mps`/`gpu` 의 실제 메모리 프로파일링과 `max_video_frames`, `batch_size` 권장값 정리.
+- Jina Omni 모델 다운로드/remote code/Hugging Face 접근 실패에 대한 사용자 가이드 보강.
+- multimodal feature 와 기존 text/audio/video feature 를 함께 쓰는 hybrid ensemble 또는 two-stage
+  wrapper 실험.
+
 ## ours_v2.5
 
 `ours_v2.5` 는 `ours_v2` 의 raw MELD + foundation embedding 실험을 세 방향으로 확장한 버전이다.

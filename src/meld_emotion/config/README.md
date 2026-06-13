@@ -47,6 +47,9 @@ PyTorch dialogue 모델은 `model.type: dialogue_rnn` 으로 선택한다. `moda
 `fusion`, `dialogue_context`, `memory_attention`, `classifier`, `training` 하위 설정을 가진다.
 `modality_encoder.text_input_dim`/`audio_input_dim`/`video_input_dim` 은 기본 `0` 이며 실제
 특징 차원을 자동 추론한다. RoPE 는 `memory_attention.use_rope: false` 가 기본이다.
+`input_mode: multimodal` 로 설정하면 `jina_omni_multimodal` 같은 fused multimodal embedding
+하나를 dialogue context/memory/classifier 입력으로 사용한다. 이때 차원은
+`modality_encoder.text_input_dim` 에 명시하거나 기본 `0` 으로 자동 추론한다.
 
 ```yaml
 model:
@@ -61,6 +64,7 @@ model:
     batch_size: 8
     max_epochs: 50
     modality_dropout: 0.2
+    input_augmentation_scenarios: []
     best_checkpoint_path: outputs/best_model.pt
 ```
 
@@ -75,7 +79,7 @@ model:
   `text_embeddinggemma`, `text_token_embeddings`, `audio_concepts`, `audio_mfcc`,
   `audio_wav2vec2_xlsr`, `audio_wav2vec2_xlsr_sequence`, `video_concepts`,
   `video_visual`, `video_timesformer`, `video_videoprism`, `video_frame_embeddings`,
-  `meld_precomputed`
+  `meld_precomputed`, `jina_omni_multimodal`
 - 모델: `early`, `late`, `dialogue_rnn`, `ensemble`, `moe`, `two_stage`,
   `two_stage_svm_margin`
 - 기초 학습기: `majority`, `random`, `centroid`, `linear_regression`, `svm`, `logreg`,

@@ -181,6 +181,7 @@ def test_example_configs_load() -> None:
         "default.yaml",
         "example_synthetic.yaml",
         "meld_sequence_dialogue_rnn.yaml",
+        "meld_jina_omni_dialogue_rnn.yaml",
         "example_finegrained_xai.yaml",
     ):
         config = load_config(root / name)

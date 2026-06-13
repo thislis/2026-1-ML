@@ -56,60 +56,86 @@ class MultimodalEmotionModel(nn.Module):
         classifier_gate_hidden_dim: int = 128,
         classifier_gate_dropout: float = 0.1,
         context_state_dropout: float = 0.0,
+        input_mode: str = "tri_modal",
     ) -> None:
         super().__init__()
         if not 0.0 <= context_state_dropout <= 1.0:
             raise ValueError("context_state_dropout must be in [0, 1]")
+        if input_mode not in {"tri_modal", "multimodal"}:
+            raise ValueError("input_mode must be 'tri_modal' or 'multimodal'")
         self.context_state_dropout = context_state_dropout
-        self.text_encoder = _build_modality_encoder(
-            modality_encoder_type,
-            text_input_dim,
-            proj_dim=modality_proj_dim,
-            hidden_dim=modality_hidden_dim,
-            rnn_type=rnn_type,
-            num_layers=modality_num_layers,
-            num_heads=modality_num_heads,
-            conv_kernel_size=modality_conv_kernel_size,
-            ffn_multiplier=modality_ffn_multiplier,
-            dropout=modality_dropout,
-            attention_dropout=modality_attention_dropout,
-            pooling_type=modality_pooling_type,
-        )
-        self.audio_encoder = _build_modality_encoder(
-            modality_encoder_type,
-            audio_input_dim,
-            proj_dim=modality_proj_dim,
-            hidden_dim=modality_hidden_dim,
-            rnn_type=rnn_type,
-            num_layers=modality_num_layers,
-            num_heads=modality_num_heads,
-            conv_kernel_size=modality_conv_kernel_size,
-            ffn_multiplier=modality_ffn_multiplier,
-            dropout=modality_dropout,
-            attention_dropout=modality_attention_dropout,
-            pooling_type=modality_pooling_type,
-        )
-        self.video_encoder = _build_modality_encoder(
-            modality_encoder_type,
-            video_input_dim,
-            proj_dim=modality_proj_dim,
-            hidden_dim=modality_hidden_dim,
-            rnn_type=rnn_type,
-            num_layers=modality_num_layers,
-            num_heads=modality_num_heads,
-            conv_kernel_size=modality_conv_kernel_size,
-            ffn_multiplier=modality_ffn_multiplier,
-            dropout=modality_dropout,
-            attention_dropout=modality_attention_dropout,
-            pooling_type=modality_pooling_type,
-        )
-        self.fusion = GatedMultimodalFusion(
-            modality_dim=modality_hidden_dim,
-            fusion_dim=fusion_dim,
-            dropout=fusion_dropout,
-            use_gated_fusion=use_gated_fusion,
-            use_interaction_features=use_interaction_features,
-        )
+        self.input_mode = input_mode
+        if input_mode == "multimodal":
+            self.multimodal_encoder = _build_modality_encoder(
+                modality_encoder_type,
+                text_input_dim,
+                proj_dim=modality_proj_dim,
+                hidden_dim=modality_hidden_dim,
+                rnn_type=rnn_type,
+                num_layers=modality_num_layers,
+                num_heads=modality_num_heads,
+                conv_kernel_size=modality_conv_kernel_size,
+                ffn_multiplier=modality_ffn_multiplier,
+                dropout=modality_dropout,
+                attention_dropout=modality_attention_dropout,
+                pooling_type=modality_pooling_type,
+            )
+            self.multimodal_output = nn.Sequential(
+                nn.LayerNorm(modality_hidden_dim),
+                nn.Linear(modality_hidden_dim, fusion_dim),
+                nn.GELU(),
+                nn.Dropout(fusion_dropout),
+            )
+        else:
+            self.text_encoder = _build_modality_encoder(
+                modality_encoder_type,
+                text_input_dim,
+                proj_dim=modality_proj_dim,
+                hidden_dim=modality_hidden_dim,
+                rnn_type=rnn_type,
+                num_layers=modality_num_layers,
+                num_heads=modality_num_heads,
+                conv_kernel_size=modality_conv_kernel_size,
+                ffn_multiplier=modality_ffn_multiplier,
+                dropout=modality_dropout,
+                attention_dropout=modality_attention_dropout,
+                pooling_type=modality_pooling_type,
+            )
+            self.audio_encoder = _build_modality_encoder(
+                modality_encoder_type,
+                audio_input_dim,
+                proj_dim=modality_proj_dim,
+                hidden_dim=modality_hidden_dim,
+                rnn_type=rnn_type,
+                num_layers=modality_num_layers,
+                num_heads=modality_num_heads,
+                conv_kernel_size=modality_conv_kernel_size,
+                ffn_multiplier=modality_ffn_multiplier,
+                dropout=modality_dropout,
+                attention_dropout=modality_attention_dropout,
+                pooling_type=modality_pooling_type,
+            )
+            self.video_encoder = _build_modality_encoder(
+                modality_encoder_type,
+                video_input_dim,
+                proj_dim=modality_proj_dim,
+                hidden_dim=modality_hidden_dim,
+                rnn_type=rnn_type,
+                num_layers=modality_num_layers,
+                num_heads=modality_num_heads,
+                conv_kernel_size=modality_conv_kernel_size,
+                ffn_multiplier=modality_ffn_multiplier,
+                dropout=modality_dropout,
+                attention_dropout=modality_attention_dropout,
+                pooling_type=modality_pooling_type,
+            )
+            self.fusion = GatedMultimodalFusion(
+                modality_dim=modality_hidden_dim,
+                fusion_dim=fusion_dim,
+                dropout=fusion_dropout,
+                use_gated_fusion=use_gated_fusion,
+                use_interaction_features=use_interaction_features,
+            )
         self.context = DialogueContextRnn(
             fusion_dim=fusion_dim,
             speaker_vocab_size=speaker_vocab_size,
@@ -159,6 +185,16 @@ class MultimodalEmotionModel(nn.Module):
         return_xai: bool = False,
         ablate_classifier_block: str | None = None,
     ) -> dict[str, torch.Tensor]:
+        if self.input_mode == "multimodal":
+            return self._forward_multimodal(
+                text_x,
+                speaker_id,
+                utterance_mask,
+                text_mask,
+                modality_mask,
+                return_xai=return_xai,
+                ablate_classifier_block=ablate_classifier_block,
+            )
         u_t, text_attn = self.text_encoder(text_x, text_mask)
         u_a, audio_attn = self.audio_encoder(audio_x, audio_mask)
         u_v, video_attn = self.video_encoder(video_x, video_mask)
@@ -206,6 +242,64 @@ class MultimodalEmotionModel(nn.Module):
                     "u_text": u_t,
                     "u_audio": u_a,
                     "u_video": u_v,
+                    "fused": fused,
+                    "context_h": context_h,
+                    "memory": memory,
+                }
+            )
+        return output
+
+    def _forward_multimodal(
+        self,
+        multimodal_x: torch.Tensor,
+        speaker_id: torch.Tensor,
+        utterance_mask: torch.Tensor,
+        multimodal_mask: torch.Tensor,
+        modality_mask: torch.Tensor,
+        *,
+        return_xai: bool,
+        ablate_classifier_block: str | None,
+    ) -> dict[str, torch.Tensor]:
+        u_m, multimodal_attn = self.multimodal_encoder(multimodal_x, multimodal_mask)
+        available = modality_mask[..., 0:1].to(dtype=u_m.dtype, device=u_m.device)
+        u_m = u_m * available
+        fused = self.multimodal_output(u_m)
+        context_h = self.context(fused, speaker_id, utterance_mask)
+        memory, memory_attn = self.memory(context_h, utterance_mask, speaker_id)
+        context_h, memory = self._apply_context_dropout(context_h, memory, utterance_mask)
+        classifier_fused = torch.zeros_like(fused) if ablate_classifier_block == "fused" else fused
+        classifier_context = (
+            torch.zeros_like(context_h) if ablate_classifier_block == "context" else context_h
+        )
+        classifier_memory = (
+            torch.zeros_like(memory) if ablate_classifier_block == "memory" else memory
+        )
+        logits = self.classifier(classifier_fused, classifier_context, classifier_memory)
+        logits = logits * utterance_mask.to(dtype=logits.dtype).unsqueeze(-1)
+        aux = self.text_aux_head(u_m) * utterance_mask.to(dtype=u_m.dtype).unsqueeze(-1)
+        zeros_aux = torch.zeros_like(aux)
+        zeros_attn = torch.zeros_like(multimodal_attn)
+        output = {
+            "logits": logits,
+            "modality_gate": available,
+            "text_attention": multimodal_attn,
+            "audio_attention": zeros_attn,
+            "video_attention": zeros_attn,
+            "memory_attention": memory_attn,
+            "aux_text_logits": aux,
+            "aux_audio_logits": zeros_aux,
+            "aux_video_logits": zeros_aux,
+        }
+        if self.classifier.last_alpha_context is not None:
+            output["alpha_context"] = self.classifier.last_alpha_context
+        if self.classifier.last_alpha_memory is not None:
+            output["alpha_memory"] = self.classifier.last_alpha_memory
+        if return_xai:
+            output.update(
+                {
+                    "u_text": u_m,
+                    "u_audio": torch.zeros_like(u_m),
+                    "u_video": torch.zeros_like(u_m),
                     "fused": fused,
                     "context_h": context_h,
                     "memory": memory,

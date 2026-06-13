@@ -11,6 +11,7 @@
 | `example_synthetic.yaml` | 단일 학습 실행 예시. 외부 데이터/무거운 의존성 없이 전체 파이프라인 확인 | `uv run meld-emotion run --config configs/example_synthetic.yaml` |
 | `example_suite.yaml` | 여러 실험을 한 번에 실행/비교하는 suite 예시 | `uv run meld-emotion compare --config configs/example_suite.yaml` |
 | `meld_sequence_dialogue_rnn.yaml` | MELD.Raw text/audio/video sequence feature + dialogue RNN 학습 | `uv run meld-emotion run --config configs/meld_sequence_dialogue_rnn.yaml` |
+| `meld_jina_omni_dialogue_rnn.yaml` | MELD.Raw Jina Omni fused multimodal embedding + dialogue RNN 학습 | `uv run meld-emotion run --config configs/meld_jina_omni_dialogue_rnn.yaml` |
 | `meld_embeddinggemma_wav2vec2_suite.yaml` | MELD.Raw foundation text/audio embedding 모델 비교 suite | `uv run meld-emotion compare --config configs/meld_embeddinggemma_wav2vec2_suite.yaml` |
 | `example_finegrained_xai.yaml` | sequence feature 기반 fine-grained XAI 예시 | `uv run meld-emotion run --config configs/example_finegrained_xai.yaml` |
 

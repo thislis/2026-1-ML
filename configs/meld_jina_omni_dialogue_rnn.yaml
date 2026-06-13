@@ -1,0 +1,65 @@
+name: meld_jina_omni_dialogue_rnn
+train_split: train
+eval_split: test
+
+dataset:
+  type: meld
+  root: MELD.Raw
+  csv_train: train/train_sent_emo.csv
+  csv_dev: dev_sent_emo.csv
+  csv_test: test_sent_emo.csv
+  audio_subdir_train: train/train_splits
+  audio_subdir_dev: dev_splits_complete
+  audio_subdir_test: output_repeated_splits_test
+  video_subdir_train: train/train_splits
+  video_subdir_dev: dev_splits_complete
+  video_subdir_test: output_repeated_splits_test
+
+extractors:
+  - type: jina_omni_multimodal
+    model_name: jinaai/jina-embeddings-v5-omni-small
+    output_dim: 1024
+    batch_size: 1
+    task: classification
+    device: cpu
+    max_video_frames: 8
+
+model:
+  type: dialogue_rnn
+  input_mode: multimodal
+  modality_encoder:
+    encoder_type: rnn
+    text_input_dim: 1024
+    proj_dim: 256
+    hidden_dim: 256
+    dropout: 0.2
+  fusion:
+    fusion_dim: 256
+    dropout: 0.3
+  dialogue_context:
+    hidden_dim: 256
+    dropout: 0.3
+  memory_attention:
+    attn_dim: 256
+  training:
+    best_checkpoint_path: outputs/meld_jina_omni_dialogue_rnn_best.pt
+    input_augmentation_scenarios: [no_text, no_audio, no_video]
+    max_epochs: 8
+    batch_size: 4
+    modality_dropout: 0.0
+    device: cpu
+
+media:
+  on_error: drop_sample
+  audio_sample_rate: 16000
+  video_max_frames: 16
+  video_frame_size: [224, 224]
+
+evaluation:
+  metrics: [accuracy, macro_f1, weighted_f1]
+  confusion: true
+  scenarios: [full, no_text, no_audio, no_video]
+
+reporters:
+  - type: json
+    path: outputs/meld_jina_omni_dialogue_rnn_result.json

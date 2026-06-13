@@ -137,7 +137,12 @@ def _model(data: Mapping[str, Any]) -> ModelConfig:
         if "classifier" in rest:
             rest["classifier"] = ClassifierHeadSettings(**rest["classifier"])
         if "training" in rest:
-            rest["training"] = DialogueTrainingSettings(**rest["training"])
+            training_data = dict(rest["training"])
+            if "input_augmentation_scenarios" in training_data:
+                training_data["input_augmentation_scenarios"] = tuple(
+                    training_data["input_augmentation_scenarios"]
+                )
+            rest["training"] = DialogueTrainingSettings(**training_data)
         if "loss" in rest:
             loss_data = dict(rest["loss"])
             if "logit_adjustment" in loss_data:

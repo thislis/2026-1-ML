@@ -59,6 +59,8 @@
 
 현재 `configs/meld_sequence_dialogue_rnn.yaml` 은 text/audio/video sequence feature 위에서
 `dialogue_rnn` 의 Conformer modality encoder 경로를 학습하는 raw MELD 예시다.
+`configs/meld_jina_omni_dialogue_rnn.yaml` 은 `jina_omni_multimodal` 이 만든 fused multimodal
+embedding 하나를 `dialogue_rnn.input_mode: multimodal` 로 학습하는 예시다.
 이 설정의 `dialogue_rnn.training.best_checkpoint_path` 는
 `outputs/meld_sequence_dialogue_rnn_best.pt` 로 설정되어 있어 가장 좋은 epoch 의
 `model_state_dict`, 설정, speaker vocabulary, feature 차원을 함께 저장한다.
@@ -87,6 +89,10 @@
 - 기존 pooled feature extractor 출력은 발화별 single vector 이므로 wrapper 가 sequence length 1인
   `[B,N,1,D]` 로 변환한다. `SequenceFeatureMatrix` 를 내는 fine-grained extractor 가 있으면
   wrapper 는 `[B,N,L,D]` 와 `[B,N,L]` mask 를 그대로 사용한다.
+- `input_mode: multimodal` 은 `Modality.MULTIMODAL` feature 하나를 `[B,N,1,D]` 로 받아
+  utterance encoder → dialogue GRU/LSTM → memory attention → classifier 만 학습한다.
+- `training.input_augmentation_scenarios` 를 지정하면 학습 raw sample 을 해당 missing-modality
+  시나리오로 복제한 뒤 Jina embedding 을 다시 계산한다.
 - `modality_encoder.*_input_dim` 은 기본 `0` 이며, 이때 train bundle 의 실제 특징 차원을 자동
   추론한다. 값을 명시하면 실제 차원과 일치해야 한다.
 - 기본 구조는 Text/Audio/Video GRU encoder → attention pooling → gated fusion → speaker

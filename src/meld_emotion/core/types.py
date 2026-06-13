@@ -29,6 +29,7 @@ class Modality(StrEnum):
     TEXT = "text"
     AUDIO = "audio"
     VIDEO = "video"
+    MULTIMODAL = "multimodal"
 
 
 class Emotion(StrEnum):
@@ -74,4 +75,9 @@ class FeatureKind(StrEnum):
 EMOTION_ORDER: tuple[Emotion, ...] = tuple(Emotion)
 
 #: 모달리티의 표준 순서 (개념 벡터 [c_T, c_A, c_V] 결합 순서에 사용).
-MODALITY_ORDER: tuple[Modality, ...] = (Modality.TEXT, Modality.AUDIO, Modality.VIDEO)
+MODALITY_ORDER: tuple[Modality, ...] = (
+    Modality.TEXT,
+    Modality.AUDIO,
+    Modality.VIDEO,
+    Modality.MULTIMODAL,
+)

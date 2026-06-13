@@ -74,8 +74,8 @@ class FeaturePipeline:
         self._media_loader = media_loader
         self._media_error_policy = media_error_policy
         self._media_chunk_size = media_chunk_size
-        self._needs_audio = any(e.modality == Modality.AUDIO for e in self._extractors)
-        self._needs_video = any(e.modality == Modality.VIDEO for e in self._extractors)
+        self._needs_audio = any(_extractor_needs(e, Modality.AUDIO) for e in self._extractors)
+        self._needs_video = any(_extractor_needs(e, Modality.VIDEO) for e in self._extractors)
 
     def fit(self, samples: Sequence[RawSample]) -> Self:
         logger.info("특징 파이프라인 fit 시작: samples=%d", len(samples))
@@ -122,7 +122,7 @@ class FeaturePipeline:
         matrices = []
         sequence_matrices: list[SequenceFeatureMatrix] = []
         for extractor in self._extractors:
-            key = f"{extractor.name}|{split.value}"
+            key = f"{extractor.name}|{split.value}|{_sample_digest(samples)}"
             cached = self._cache.get(key)
             if cached is not None and cached.n_samples == len(samples):
                 logger.debug(
@@ -285,7 +285,7 @@ class FeaturePipeline:
                 kind=spec.kind,
                 source=spec.source,
             )
-            self._cache.put(f"{extractor.name}|{split.value}", matrix)
+            self._cache.put(f"{extractor.name}|{split.value}|{_sample_digest(prepared_light)}", matrix)
             logger.info(
                 "특징 변환 완료: extractor=%s samples=%d features=%d modality=%s kind=%s",
                 extractor.name,
@@ -355,6 +355,7 @@ class FeaturePipeline:
         audio = current.audio
         if (
             self._needs_audio
+            and current.has(Modality.AUDIO)
             and audio is not None
             and audio.waveform is None
             and audio.source_path is not None
@@ -370,6 +371,7 @@ class FeaturePipeline:
         video = current.video
         if (
             self._needs_video
+            and current.has(Modality.VIDEO)
             and video is not None
             and video.frames is None
             and video.source_path is not None
@@ -450,10 +452,18 @@ class FeaturePipeline:
 
     @staticmethod
     def _availability(samples: Sequence[RawSample]) -> dict[Modality, BoolArray]:
-        return {
+        availability = {
             modality: np.array([s.has(modality) for s in samples], dtype=np.bool_)
             for modality in MODALITY_ORDER
         }
+        availability[Modality.MULTIMODAL] = np.array(
+            [
+                s.has(Modality.TEXT) or s.has(Modality.AUDIO) or s.has(Modality.VIDEO)
+                for s in samples
+            ],
+            dtype=np.bool_,
+        )
+        return availability
 
 
 def _log_media_progress(index: int, total: int, kept: int) -> None:
@@ -565,15 +575,24 @@ def _concat_sequence_chunks(
 
 
 def _bundle_cache_key(split: Split, samples: Sequence[RawSample]) -> str:
-    return f"bundle|{split.value}|{len(samples)}|{_uid_digest(samples)}"
+    return f"bundle|{split.value}|{len(samples)}|{_sample_digest(samples)}"
 
 
-def _uid_digest(samples: Sequence[RawSample]) -> str:
+def _sample_digest(samples: Sequence[RawSample]) -> str:
     hasher = hashlib.sha1()
     for sample in samples:
         hasher.update(sample.uid.encode("utf-8"))
         hasher.update(b"\0")
+        hasher.update(",".join(sorted(modality.value for modality in sample.mask.available)).encode("utf-8"))
+        hasher.update(b"\0")
     return hasher.hexdigest()
+
+
+def _extractor_needs(extractor: FeatureExtractor, modality: Modality) -> bool:
+    if extractor.modality == modality:
+        return True
+    required = getattr(extractor, "required_modalities", ())
+    return modality in required
 
 
 def _get_cached_bundle(cache: FeatureCache, key: str) -> FeatureBundle | None:
