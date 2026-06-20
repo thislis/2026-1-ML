@@ -315,6 +315,16 @@ class XGBoostConfig(EstimatorConfig):
 
 
 @dataclass(frozen=True)
+class CatBoostConfig(EstimatorConfig):
+    type: ClassVar[str] = "catboost"
+    iterations: int = 200
+    depth: int = 6
+    learning_rate: float = 0.1
+    l2_leaf_reg: float = 3.0
+    random_seed: int = 0
+
+
+@dataclass(frozen=True)
 class MlpConfig(EstimatorConfig):
     type: ClassVar[str] = "mlp"
     hidden_dim: int = 128
@@ -341,6 +351,7 @@ for _est in (
     RandomForestConfig,
     KnnConfig,
     XGBoostConfig,
+    CatBoostConfig,
     MlpConfig,
 ):
     ESTIMATOR_CONFIGS.add(_est.type, _est)
@@ -479,6 +490,22 @@ class SvmMarginTwoStageConfig(ModelConfig):
     margin_threshold: float = 0.25
     stage1_confidence_threshold: float | None = None
     stage1_use_concepts: bool = True
+    neutral_label: str = "neutral"
+
+
+@dataclass(frozen=True)
+class SvmTwoStageConfig(ModelConfig):
+    type: ClassVar[str] = "svm_two_stage"
+    stage: EstimatorConfig = field(default_factory=lambda: SvmConfig())
+    use_concepts: bool = True
+    neutral_label: str = "neutral"
+
+
+@dataclass(frozen=True)
+class SvmFourStageConfig(ModelConfig):
+    type: ClassVar[str] = "svm_four_stage"
+    stage: EstimatorConfig = field(default_factory=lambda: SvmConfig())
+    use_concepts: bool = True
     neutral_label: str = "neutral"
 
 
@@ -634,6 +661,8 @@ MODEL_CONFIGS.add(EnsembleConfig.type, EnsembleConfig)
 MODEL_CONFIGS.add(MoeConfig.type, MoeConfig)
 MODEL_CONFIGS.add(TwoStageConfig.type, TwoStageConfig)
 MODEL_CONFIGS.add(SvmMarginTwoStageConfig.type, SvmMarginTwoStageConfig)
+MODEL_CONFIGS.add(SvmTwoStageConfig.type, SvmTwoStageConfig)
+MODEL_CONFIGS.add(SvmFourStageConfig.type, SvmFourStageConfig)
 
 
 # --- 평가 ---------------------------------------------------------------------

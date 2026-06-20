@@ -356,6 +356,38 @@ model:
   neutral_label: neutral
 ```
 
+### SVM two-stage hierarchy
+
+Markdown 설계안의 SVM1(Neutral/Non-Neutral) + SVM2(non-neutral 6-class) 를 별도 학습한다.
+`use_concepts: true` 이면 embedding 과 concept feature 를 함께 쌓고, `false` 이면 embedding 만 쓴다.
+
+```yaml
+model:
+  type: svm_two_stage
+  stage:
+    type: svm
+    C: 1.0
+    kernel: rbf
+  use_concepts: true
+  neutral_label: neutral
+```
+
+### SVM four-stage hierarchy
+
+SVM1(Neutral/Non-Neutral) → SVM2(anger/joy/surprise/else) → SVM3(sadness/else) →
+SVM4(disgust/fear) 구조를 hard routing 으로 실행한다.
+
+```yaml
+model:
+  type: svm_four_stage
+  stage:
+    type: svm
+    C: 1.0
+    kernel: rbf
+  use_concepts: true
+  neutral_label: neutral
+```
+
 ### Dialogue RNN
 
 발화별 feature를 dialogue batch로 재구성해 PyTorch 모델을 학습한다.
@@ -474,6 +506,7 @@ Early/late fusion의 `base` 또는 일부 wrapper의 stage에서 사용한다.
 | `random_forest` | `n_estimators`, `max_depth` | sklearn 필요 |
 | `knn` | `n_neighbors` | sklearn 필요 |
 | `xgboost` | `n_estimators`, `max_depth`, `learning_rate`, `subsample`, `colsample_bytree`, `seed` | `--extra xgboost` 필요 |
+| `catboost` | `iterations`, `depth`, `learning_rate`, `l2_leaf_reg`, `random_seed` | `--extra catboost` 필요 |
 | `mlp` | `hidden_dim`, `dropout`, `learning_rate`, `batch_size`, `max_epochs`, `device` 등 | `--extra deep` 필요 |
 
 ## 학습 시 Modality Dropout
@@ -619,6 +652,7 @@ experiments: []
 | Dialogue RNN / MLP | `uv sync --extra deep` |
 | Fine-grained XAI / Captum | `uv sync --extra xai` |
 | XGBoost | `uv sync --extra xgboost` |
+| CatBoost | `uv sync --extra catboost` |
 
 일반 raw MELD sequence + XAI 조합:
 
@@ -647,8 +681,9 @@ uv run mypy src
 uv run ruff check .
 ```
 
-XGBoost native 테스트는 macOS arm64 OpenMP 충돌을 피하기 위해 별도 프로세스로 실행한다.
+XGBoost/CatBoost native 테스트는 macOS arm64 OpenMP 충돌을 피하기 위해 별도 프로세스로 실행한다.
 
 ```bash
 uv run python -m pytest -q -m xgboost_native
+uv run python -m pytest -q -m catboost_native
 ```

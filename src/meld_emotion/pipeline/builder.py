@@ -16,6 +16,7 @@ from meld_emotion.config.schema import (
     AudioConceptConfig,
     BowTextConfig,
     CacheConfig,
+    CatBoostConfig,
     CombinerConfig,
     ConsoleReporterConfig,
     CounterfactualConfig,
@@ -56,7 +57,9 @@ from meld_emotion.config.schema import (
     SentenceEmbeddingConfig,
     StackingCombinerConfig,
     SvmConfig,
+    SvmFourStageConfig,
     SvmMarginTwoStageConfig,
+    SvmTwoStageConfig,
     SyntheticConfig,
     TextConceptConfig,
     TextTokenEmbeddingConfig,
@@ -132,6 +135,7 @@ from meld_emotion.models.baselines import (
     NearestCentroidEstimator,
     RandomEstimator,
 )
+from meld_emotion.models.catboost_estimators import CatBoostEstimator
 from meld_emotion.models.ensemble import ArtifactEnsembleClassifier
 from meld_emotion.models.mlp_estimator import MlpEstimator
 from meld_emotion.models.moe import MoeEmotionClassifier
@@ -141,7 +145,12 @@ from meld_emotion.models.sklearn_estimators import (
     RandomForestEstimator,
     SvmEstimator,
 )
-from meld_emotion.models.two_stage import SvmMarginTwoStageClassifier, TwoStageEmotionClassifier
+from meld_emotion.models.two_stage import (
+    SvmFourStageClassifier,
+    SvmMarginTwoStageClassifier,
+    SvmTwoStageClassifier,
+    TwoStageEmotionClassifier,
+)
 from meld_emotion.models.xgboost_estimators import XGBoostEstimator
 from meld_emotion.pipeline.cache import (
     DiskFeatureCache,
@@ -337,6 +346,15 @@ def build_estimator_factory(config: EstimatorConfig) -> Callable[[int], Estimato
             colsample_bytree=config.colsample_bytree,
             seed=config.seed,
         )
+    if isinstance(config, CatBoostConfig):
+        return lambda n: CatBoostEstimator(
+            n_classes=n,
+            iterations=config.iterations,
+            depth=config.depth,
+            learning_rate=config.learning_rate,
+            l2_leaf_reg=config.l2_leaf_reg,
+            random_seed=config.random_seed,
+        )
     if isinstance(config, MlpConfig):
         return lambda n: MlpEstimator(
             n_classes=n,
@@ -401,6 +419,20 @@ def build_classifier(config: ModelConfig, classes: tuple[Emotion, ...]) -> Class
             margin_threshold=config.margin_threshold,
             stage1_confidence_threshold=config.stage1_confidence_threshold,
             stage1_use_concepts=config.stage1_use_concepts,
+            neutral_label=Emotion(config.neutral_label),
+        )
+    if isinstance(config, SvmTwoStageConfig):
+        return SvmTwoStageClassifier(
+            build_estimator_factory(config.stage),
+            classes,
+            use_concepts=config.use_concepts,
+            neutral_label=Emotion(config.neutral_label),
+        )
+    if isinstance(config, SvmFourStageConfig):
+        return SvmFourStageClassifier(
+            build_estimator_factory(config.stage),
+            classes,
+            use_concepts=config.use_concepts,
             neutral_label=Emotion(config.neutral_label),
         )
     raise ValueError(f"알 수 없는 모델 설정: {type(config).__name__}")

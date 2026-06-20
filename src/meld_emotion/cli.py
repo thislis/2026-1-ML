@@ -192,6 +192,55 @@ def _cmd_infer_batch(
     return 0
 
 
+def _cmd_fine_tune_embeddinggemma(
+    csv_path: str,
+    model_name: str,
+    output_dir: str,
+    epochs: float,
+    batch_size: int,
+    learning_rate: float,
+    warmup_ratio: float,
+    eval_fraction: float,
+    seed: int,
+    device: str,
+    fp16: bool,
+    bf16: bool,
+    max_steps: int | None,
+    save_total_limit: int,
+    log_level: str,
+    log_file: str | None,
+) -> int:
+    configure_logging(log_level, log_file)
+    from meld_emotion.fine_tunning.embeddinggemma import (
+        EmbeddingGemmaFineTuneConfig,
+        run_embeddinggemma_fine_tuning,
+    )
+
+    logger.info("EmbeddingGemma fine-tuning 준비: csv=%s model=%s", csv_path, model_name)
+    summary = run_embeddinggemma_fine_tuning(
+        EmbeddingGemmaFineTuneConfig(
+            csv_path=Path(csv_path),
+            model_name=model_name,
+            output_dir=Path(output_dir),
+            epochs=epochs,
+            batch_size=batch_size,
+            learning_rate=learning_rate,
+            warmup_ratio=warmup_ratio,
+            eval_fraction=eval_fraction,
+            seed=seed,
+            device=device,
+            fp16=fp16,
+            bf16=bf16,
+            max_steps=max_steps,
+            save_total_limit=save_total_limit,
+        )
+    )
+    print(f"final_model_dir: {summary.final_model_dir}")
+    print(f"summary: {Path(summary.output_dir) / 'training_summary.json'}")
+    logger.info("EmbeddingGemma fine-tuning 완료: final_model_dir=%s", summary.final_model_dir)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="meld-emotion", description="MELD 멀티모달 감정 인식")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -327,6 +376,73 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_logging_args(batch_parser)
 
+    fine_tune_parser = sub.add_parser(
+        "fine-tune-embeddinggemma",
+        help="MELD 감정 라벨로 EmbeddingGemma sentence embedding fine-tuning",
+    )
+    fine_tune_parser.add_argument(
+        "--csv",
+        default="MELD.Raw/train/train_sent_emo.csv",
+        help="MELD train_sent_emo.csv 경로",
+    )
+    fine_tune_parser.add_argument(
+        "--model-name",
+        default="google/embeddinggemma-300m",
+        help="fine-tuning 할 SentenceTransformer 모델 이름 또는 경로",
+    )
+    fine_tune_parser.add_argument(
+        "--output-dir",
+        default="outputs/embeddinggemma_meld_finetuned",
+        help="checkpoint 와 final 모델을 저장할 디렉터리",
+    )
+    fine_tune_parser.add_argument("--epochs", type=float, default=1.0, help="학습 epoch 수")
+    fine_tune_parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=16,
+        help="device 별 train/eval batch size",
+    )
+    fine_tune_parser.add_argument(
+        "--learning-rate",
+        type=float,
+        default=2e-5,
+        help="optimizer learning rate",
+    )
+    fine_tune_parser.add_argument(
+        "--warmup-ratio",
+        type=float,
+        default=0.1,
+        help="전체 step 대비 warmup 비율",
+    )
+    fine_tune_parser.add_argument(
+        "--eval-fraction",
+        type=float,
+        default=0.1,
+        help="라벨별 eval split 비율",
+    )
+    fine_tune_parser.add_argument("--seed", type=int, default=0, help="split/training seed")
+    fine_tune_parser.add_argument(
+        "--device",
+        default="auto",
+        choices=("auto", "cpu", "mps", "cuda"),
+        help="학습 장치",
+    )
+    fine_tune_parser.add_argument("--fp16", action="store_true", help="fp16 mixed precision 사용")
+    fine_tune_parser.add_argument("--bf16", action="store_true", help="bf16 mixed precision 사용")
+    fine_tune_parser.add_argument(
+        "--max-steps",
+        type=int,
+        default=None,
+        help="smoke run 용 최대 학습 step 수",
+    )
+    fine_tune_parser.add_argument(
+        "--save-total-limit",
+        type=int,
+        default=2,
+        help="보존할 trainer checkpoint 최대 개수",
+    )
+    _add_logging_args(fine_tune_parser)
+
     sub.add_parser("status", help="컴포넌트 구현 상태 출력")
     return parser
 
@@ -380,6 +496,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.resume,
             args.limit,
             args.duplicate_uid_policy,
+            args.log_level,
+            args.log_file,
+        )
+    if args.command == "fine-tune-embeddinggemma":
+        return _cmd_fine_tune_embeddinggemma(
+            args.csv,
+            args.model_name,
+            args.output_dir,
+            args.epochs,
+            args.batch_size,
+            args.learning_rate,
+            args.warmup_ratio,
+            args.eval_fraction,
+            args.seed,
+            args.device,
+            args.fp16,
+            args.bf16,
+            args.max_steps,
+            args.save_total_limit,
             args.log_level,
             args.log_file,
         )

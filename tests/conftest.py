@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pytest
 
@@ -12,7 +15,29 @@ from meld_emotion.data.synthetic import SyntheticDatasetSource
 from meld_emotion.features.audio import AudioConceptExtractor
 from meld_emotion.features.text import BowTextExtractor, TextConceptExtractor
 from meld_emotion.features.video import VideoConceptExtractor
-from meld_emotion.pipeline.feature_pipeline import FeaturePipeline
+
+if TYPE_CHECKING:
+    from meld_emotion.pipeline.feature_pipeline import FeaturePipeline
+
+_NATIVE_TEST_MARKERS = {
+    "test_xgboost_estimator.py": "xgboost_native",
+    "test_catboost_estimator.py": "catboost_native",
+}
+
+
+def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool:
+    marker = _NATIVE_TEST_MARKERS.get(collection_path.name)
+    markexpr = str(config.getoption("-m") or "")
+    requested_native = {
+        native_marker
+        for native_marker in _NATIVE_TEST_MARKERS.values()
+        if native_marker in markexpr
+    }
+    if requested_native:
+        return marker not in requested_native
+    if marker is None:
+        return False
+    return marker not in markexpr
 
 
 @pytest.fixture
@@ -37,6 +62,8 @@ def encoder() -> EmotionLabelEncoder:
 
 @pytest.fixture
 def pipeline() -> FeaturePipeline:
+    from meld_emotion.pipeline.feature_pipeline import FeaturePipeline
+
     return FeaturePipeline(
         [
             TextConceptExtractor(),

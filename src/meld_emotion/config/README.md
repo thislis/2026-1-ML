@@ -81,9 +81,9 @@ model:
   `video_visual`, `video_timesformer`, `video_videoprism`, `video_frame_embeddings`,
   `meld_precomputed`, `jina_omni_multimodal`
 - 모델: `early`, `late`, `dialogue_rnn`, `ensemble`, `moe`, `two_stage`,
-  `two_stage_svm_margin`
+  `two_stage_svm_margin`, `svm_two_stage`, `svm_four_stage`
 - 기초 학습기: `majority`, `random`, `centroid`, `linear_regression`, `svm`, `logreg`,
-  `random_forest`, `knn`, `xgboost`, `mlp`
+  `random_forest`, `knn`, `xgboost`, `catboost`, `mlp`
 - 결합기: `mean`, `weighted`, `stacking`
 - 설명기: `permutation`, `modality_ablation`, `counterfactual`, `dialogue_finegrained_xai`
 - 캐시: `memory`, `null`, `disk`

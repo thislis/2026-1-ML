@@ -9,8 +9,10 @@ disgust)을 분류하고, **해석 가능한 개념 벡터** `c = [c_T, c_A, c_V
 
 > 이 저장소는 **아키텍처 골격에서 출발해 실제 MELD raw/precomputed 실험까지 확장된 코드**다.
 > 파이프라인 전체(데이터→특징→융합→분류→평가→설명→리포트)가 합성 데이터로 즉시
-> 실행/테스트되고, MELD CSV/metadata, raw MP4 lazy-load, foundation embedding, sklearn/XGBoost,
-> dialogue-level PyTorch 모델, ensemble/MoE/two-stage/SVM-margin two-stage wrapper, calibration 지표도 설정으로
+> 실행/테스트되고, MELD CSV/metadata, raw MP4 lazy-load, foundation embedding,
+> sklearn/XGBoost/CatBoost,
+> dialogue-level PyTorch 모델, ensemble/MoE/two-stage/SVM-margin two-stage wrapper,
+> SVM two-stage/four-stage hierarchy, calibration 지표도 설정으로
 > 연결된다. 아직 TF-IDF, sentence embedding, MFCC, visual cue, stacking combiner, disk cache,
 > dashboard rendering 은 placeholder 경계로 남아 있다.
 > 현재 상태는 `uv run meld-emotion status` 로 항상 확인할 수 있다.
@@ -41,9 +43,11 @@ uv run meld-emotion infer --mp4 sample.mp4 --text "I am so happy!" --checkpoint 
 uv run meld-emotion infer --mp4 sample.mp4 --text "I am so happy!" --checkpoint outputs/best_model.pt --xai --json
 uv run python infer_emotion.py --mp4 sample.mp4 --text "I am so happy!"
 uv run meld-emotion status                             # 구현 상태(완료/임시/미구현) 표
-uv run python -m pytest -q                                       # 단위 + end-to-end 테스트(xgboost native 제외)
+uv run python -m pytest -q                                       # 단위 + end-to-end 테스트(native booster 제외)
 uv sync --extra xgboost                                        # XGBoost native 테스트 의존성
 uv run python -m pytest -q -m xgboost_native                     # xgboost native 테스트(별도 프로세스)
+uv sync --extra catboost                                      # CatBoost native 테스트 의존성
+uv run python -m pytest -q -m catboost_native                   # catboost native 테스트(별도 프로세스)
 uv run mypy src                                        # 정적 타입 검사 (strict)
 uv run ruff check .                                    # 린트
 ```
@@ -59,6 +63,8 @@ uv run python scripts/infer.py --checkpoint outputs/best_model.pt --input sample
 `configs/default.yaml` 은 합성 데이터에서 즉시 도는 경량 기본값이며, `model.type: two_stage` 로
 Model 1(Neutral/Non-Neutral) 판단 뒤 Model 2(non-neutral emotion) 판단을 명시한다. 실제 MP4
 foundation feature 실험은 아래 MELD/raw 설정과 `dialogue_rnn`/`two_stage.base` 조합을 사용한다.
+Markdown 설계안의 순수 SVM 계층형 모델은 `model.type: svm_two_stage` 또는
+`model.type: svm_four_stage` 로 선택한다.
 
 `run`/`compare` 는 기본적으로 `INFO` 레벨 진행 로그를 stderr 로 출력한다. 더 자세히 보려면
 `--log-level DEBUG`, 파일에도 남기려면 `--log-file outputs/run.log` 를 추가한다.
@@ -87,9 +93,10 @@ uv run python infer_emotion.py --mp4 sample.mp4 --text "I am so happy!"
 `uv sync --extra text --extra audio --extra video --extra deep --extra xai` 가 필요하며, checkpoint
 의 text/audio/video input dim 이 sequence extractor 출력 차원(기본 768/1024/768)과 맞아야 한다.
 
-macOS arm64 환경에서는 PyTorch 와 XGBoost 가 서로 다른 OpenMP(`libomp`) 런타임을 같은 Python
-프로세스에 올릴 때 native segfault 가 날 수 있다. 그래서 기본 pytest 는 `xgboost_native`
-마커 테스트를 제외하고, XGBoost 테스트는 위처럼 별도 pytest 프로세스에서 실행한다.
+macOS arm64 환경에서는 PyTorch 와 native booster 라이브러리가 서로 다른 OpenMP(`libomp`)
+런타임을 같은 Python 프로세스에 올릴 때 native segfault 가 날 수 있다. 그래서 기본 pytest 는
+`xgboost_native`/`catboost_native` 마커 테스트를 제외하고, XGBoost/CatBoost 테스트는 위처럼
+별도 pytest 프로세스에서 실행한다.
 
 텍스트 임베딩은 경량 해싱 BoW(`type: text_bow`) 외에
 `google/embeddinggemma-300m` 기반 `type: text_embeddinggemma` 도 선택할 수 있다. 이 경로는
@@ -283,7 +290,7 @@ DatasetSource → FeaturePipeline(추출기들) → FeatureBundle
 - **무엇이 되어 있나**: `uv run meld-emotion status` 가 [core/status.py](src/meld_emotion/core/status.py)
   레지스트리에서 직접 읽어 REAL / PLACEHOLDER / UNIMPLEMENTED 를 출력한다. 손으로 관리하는
   목록이 아니므로 코드와 어긋나지 않는다.
-  현재 상태 기준 전체 68개 컴포넌트 중 REAL 61개, PLACEHOLDER 7개, UNIMPLEMENTED 0개다.
+  현재 상태 기준 전체 72개 컴포넌트 중 REAL 65개, PLACEHOLDER 7개, UNIMPLEMENTED 0개다.
   `MediaLoader` 는 MP4 오디오 waveform 과 비디오 프레임을 분리해서 lazy-load 한다.
   suite 실행은 같은 dataset/extractor/media signature 를 가진 실험끼리 in-memory feature cache 를
   공유한다. 다만 `DiskFeatureCache` 는 아직 실행 간 영속화가 아닌 인메모리 위임 placeholder 다.

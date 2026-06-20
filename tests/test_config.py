@@ -7,6 +7,7 @@ from pathlib import Path
 from meld_emotion.config.loader import dump_config, from_dict, load_config, load_suite, to_dict
 from meld_emotion.config.schema import (
     CalibrationSettings,
+    CatBoostConfig,
     ClassifierHeadSettings,
     DialogueContextSettings,
     DialogueFineGrainedXaiConfig,
@@ -25,13 +26,16 @@ from meld_emotion.config.schema import (
     MfccConfig,
     MlpConfig,
     SvmConfig,
+    SvmFourStageConfig,
     SvmMarginTwoStageConfig,
+    SvmTwoStageConfig,
     SyntheticConfig,
     TextConceptConfig,
     TextTokenEmbeddingConfig,
     TfidfConfig,
     VideoFrameEmbeddingConfig,
     Wav2Vec2XlsrAudioSequenceConfig,
+    XGBoostConfig,
 )
 
 
@@ -66,11 +70,10 @@ def test_late_fusion_roundtrip() -> None:
 
 
 def test_new_baseline_configs_roundtrip() -> None:
-    from meld_emotion.config.schema import XGBoostConfig
-
     for base in (
         LinearRegressionConfig(alpha=0.01, fit_intercept=False),
         XGBoostConfig(n_estimators=10, max_depth=3, learning_rate=0.2),
+        CatBoostConfig(iterations=10, depth=3, learning_rate=0.2, l2_leaf_reg=2.0),
         MlpConfig(
             hidden_dim=32,
             dropout=0.1,
@@ -95,6 +98,15 @@ def test_svm_margin_two_stage_config_roundtrip() -> None:
         ),
     )
     assert from_dict(to_dict(config)) == config
+
+
+def test_svm_hierarchy_config_roundtrip() -> None:
+    for model in (
+        SvmTwoStageConfig(stage=SvmConfig(C=2.0, kernel="linear"), use_concepts=False),
+        SvmFourStageConfig(stage=SvmConfig(C=0.5, kernel="rbf"), use_concepts=True),
+    ):
+        config = ExperimentConfig(name="svm_hierarchy", model=model)
+        assert from_dict(to_dict(config)) == config
 
 
 def test_dialogue_ablation_toggles_roundtrip() -> None:
@@ -205,6 +217,20 @@ def test_retained_suite_configs_load_with_expected_experiments() -> None:
         "early_logreg",
         "late_centroid",
     }
+
+
+def test_foundation_all_models_suite_includes_native_boosters() -> None:
+    root = Path(__file__).resolve().parents[1]
+    suite = load_suite(root / "configs" / "test" / "meld_foundation_all_models_suite.yaml")
+    by_name = {config.name: config for config in suite.experiments}
+    assert "early_catboost" in by_name
+    model = by_name["early_catboost"].model
+    assert isinstance(model, EarlyFusionConfig)
+    assert isinstance(model.base, CatBoostConfig)
+    assert "early_xgboost" in by_name
+    xgboost_model = by_name["early_xgboost"].model
+    assert isinstance(xgboost_model, EarlyFusionConfig)
+    assert isinstance(xgboost_model.base, XGBoostConfig)
 
 
 def test_meld_sequence_dialogue_rnn_uses_sequence_extractors_and_separate_checkpoint() -> None:
