@@ -374,6 +374,13 @@ uv run python -m pytest -q -m catboost_native
 uv run meld-emotion run --config configs/default.yaml --log-level DEBUG --log-file outputs/run.log
 ```
 
+## 표기 규칙 안내
+
+최종 보고서(논문)에서는 foundation encoder 의 학습 여부를 **Frozen / Optimized(Fine-tuned)** 로
+표기한다. 이 저장소 코드·설정·실험 결과 파일에서는 팀원 간 소통의 편의를 위해 동일한 개념을
+**F(Finetuned) / O(Original)** 로 축약해 사용한다(예: `EG(F)+W2V(O)+TS(F)`).
+두 표기는 같은 의미이며, F ↔ Frozen(보고서) / O ↔ Optimized(보고서) 로 대응된다.
+
 ## 참고 문서
 
 - `version_history.md`: 버전별 구현 변화와 최종 SVM 전환 배경
