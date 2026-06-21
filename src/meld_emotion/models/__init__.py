@@ -12,6 +12,7 @@ from meld_emotion.models.baselines import (
     NearestCentroidEstimator,
     RandomEstimator,
 )
+from meld_emotion.models.catboost_estimators import CatBoostEstimator
 from meld_emotion.models.conformer_encoder import ConformerEncoder
 from meld_emotion.models.ensemble import ArtifactEnsembleClassifier
 from meld_emotion.models.moe import MoeEmotionClassifier
@@ -30,6 +31,7 @@ __all__ = [
     "RandomEstimator",
     "ConformerEncoder",
     "ArtifactEnsembleClassifier",
+    "CatBoostEstimator",
     "SvmEstimator",
     "XGBoostEstimator",
 ]

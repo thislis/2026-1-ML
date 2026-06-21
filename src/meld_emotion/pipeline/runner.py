@@ -12,6 +12,8 @@ import logging
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from dataclasses import replace
+from pathlib import Path
+from typing import Any
 
 from meld_emotion.core.data import ModalityMask, RawSample
 from meld_emotion.core.features import FeatureBundle
@@ -37,6 +39,7 @@ from meld_emotion.core.types import Emotion, IntArray, Modality, Split
 from meld_emotion.evaluation.evaluator import Evaluator
 from meld_emotion.evaluation.robustness import RobustnessEvaluator
 from meld_emotion.fusion.masking import ModalityDropout, ModalityScenario, get_scenario
+from meld_emotion.models.artifact import save_classifier_artifact
 from meld_emotion.pipeline.feature_pipeline import FeaturePipeline
 
 logger = logging.getLogger(__name__)
@@ -62,6 +65,8 @@ class ExperimentRunner:
         dropout: ModalityDropout | None = None,
         train_augmentation_scenarios: Sequence[str] = (),
         metadata: Mapping[str, str] | None = None,
+        artifact_path: str | None = None,
+        artifact_config: Mapping[str, Any] | None = None,
     ) -> None:
         self._name = name
         self._source = source
@@ -77,6 +82,8 @@ class ExperimentRunner:
         self._dropout = dropout
         self._train_augmentation_scenarios = tuple(train_augmentation_scenarios)
         self._metadata = dict(metadata or {})
+        self._artifact_path = artifact_path
+        self._artifact_config = dict(artifact_config or {})
 
     def run(self) -> ExperimentResult:
         try:
@@ -155,6 +162,16 @@ class ExperimentRunner:
             explanation=explanation,
             metadata=metadata,
         )
+        if self._artifact_path is not None:
+            artifact_path = Path(self._artifact_path)
+            logger.info("classifier artifact 저장 시작: path=%s", artifact_path)
+            save_classifier_artifact(
+                artifact_path,
+                self._classifier,
+                self._artifact_config,
+                {**metadata, "artifact_path": str(artifact_path)},
+            )
+            logger.info("classifier artifact 저장 완료: path=%s", artifact_path)
         for reporter in self._reporters:
             logger.info("리포터 저장 시작: reporter=%s", type(reporter).__name__)
             reporter.save(result)

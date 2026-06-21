@@ -10,7 +10,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-text = ["scikit-learn>=1.4", "sentence-transformers>=2.6", "transformers>=4.57"]
+text = [
+    "scikit-learn>=1.4",
+    "sentence-transformers>=2.6",
+    "transformers>=4.57",
+    "datasets>=2.19",
+]
 audio = ["av>=11", "librosa>=0.10", "soundfile>=0.12", "transformers>=4.57", "torch>=2.5"]
 video = [
     "opencv-python>=4.9",
@@ -24,10 +29,11 @@ video = [
     "huggingface-hub>=0.24",
     "videoprism @ git+https://github.com/google-deepmind/videoprism.git",
 ]
-xgboost = ["xgboost>=2.0"]
+xgboost = ["xgboost>=2.0,<3.0"]
+catboost = ["catboost>=1.2"]
 deep = ["torch>=2.5", "peft>=0.13"]
 xai = ["captum>=0.7"]
-all = ["meld-emotion[text,audio,video,xgboost,deep,xai]"]
+all = ["meld-emotion[text,audio,video,xgboost,catboost,deep,xai]"]
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
@@ -110,7 +116,10 @@ module = [
     "videoprism.*",
     "sentence_transformers.*",
     "transformers.*",
+    "datasets",
+    "datasets.*",
     "xgboost.*",
+    "catboost.*",
     "torch",
     "torch.*",
 ]
@@ -126,9 +135,10 @@ disallow_any_generics = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q --strict-markers -m 'not xgboost_native'"
+addopts = "-q --strict-markers"
 markers = [
     "xgboost_native: tests that exercise XGBoost's native library; run in a separate pytest process on macOS to avoid OpenMP runtime collisions with PyTorch.",
+    "catboost_native: tests that exercise CatBoost's native library; run in a separate pytest process.",
 ]
 filterwarnings = [
     # Placeholder components emit RuntimeWarning by design; keep them visible but non-fatal.

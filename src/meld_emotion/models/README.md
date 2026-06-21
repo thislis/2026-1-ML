@@ -25,6 +25,8 @@
     학습에서 본 클래스 열만 내는 `predict_proba` 를 **전체 클래스 폭 K** 로 확장하는 일을 담당한다.
 - `xgboost_estimators.py` (완전 구현, `[xgboost]` extra 필요):
   - `XGBoostEstimator`(`xgboost`) — `XGBClassifier(objective="multi:softprob")` baseline.
+- `catboost_estimators.py` (완전 구현, `[catboost]` extra 필요):
+  - `CatBoostEstimator`(`catboost`) — `CatBoostClassifier(loss_function="MultiClass")` baseline.
 - `mlp_estimator.py` (완전 구현, `[deep]` extra 필요):
   - `MlpEstimator`(`mlp`) — tabular feature matrix 용 PyTorch MLP baseline. class weight,
     validation split, early stopping, checkpoint 없는 in-memory best state reload 를 지원한다.
@@ -47,6 +49,13 @@
     decision margin 이 충분히 크면 SVM 라벨을 확정하고, 낮은 margin 샘플은 Stage 2 classifier 의
     기존 non-neutral top-emotion 방식으로 넘긴다. `stage1_confidence_threshold` 를 설정하면 margin
     대신 SVM top probability 가 낮은 샘플을 Stage 2 로 보낼 수 있다.
+  - `SvmTwoStageClassifier`(`svm_two_stage`) — SVM1 을 Neutral/Non-Neutral 로, SVM2 를
+    6개 non-neutral emotion 으로 별도 학습하는 계층형 SVM. 최종 라벨은 hard routing 으로 정하고
+    확률은 `P(non_neutral) * P(emotion | non_neutral)` 형태로 7-class 분포를 만든다.
+  - `SvmFourStageClassifier`(`svm_four_stage`) — SVM1(Neutral/Non-Neutral) →
+    SVM2(anger/joy/surprise/else) → SVM3(sadness/else) → SVM4(disgust/fear) 구조를 그대로
+    학습한다. 희소 split 에서 어떤 stage 가 비거나 단일 클래스만 보아도 deterministic fallback 으로
+    SVC 학습 실패를 피한다.
 - `ensemble.py` / `moe.py` (완전 구현):
   - `ArtifactEnsembleClassifier`(`ensemble`) — base classifier 확률/logit 과 SVM/LogReg artifact 를
     late-logit 또는 residual correction 방식으로 결합하며, 지원 base 에 teacher distillation 을
@@ -114,11 +123,14 @@ embedding 하나를 `dialogue_rnn.input_mode: multimodal` 로 학습하는 예�
 - 테스트는 sklearn 미설치 시 `pytest.importorskip` 으로 skip 된다(`tests/test_sklearn_estimators.py`).
   실제 검증은 `uv sync --extra text` 후 수행.
 
-## XGBoost 테스트 메모
+## Native booster 테스트 메모
 
 - `tests/test_xgboost_estimator.py` 는 `xgboost_native` 마커가 붙어 기본 pytest 실행에서 제외된다.
+- `tests/test_catboost_estimator.py` 는 `catboost_native` 마커가 붙어 기본 pytest 실행에서 제외된다.
 - 실행 전 `uv sync --extra xgboost` 또는 `uv sync --extra all` 로 native 의존성을 설치한다.
-- macOS arm64 에서 PyTorch 가 먼저 import 된 뒤 XGBoost native library 가 학습을 시작하면 서로
+- CatBoost 검증 전에는 `uv sync --extra catboost` 또는 `uv sync --extra all` 로 native 의존성을
+  설치한다.
+- macOS arm64 에서 PyTorch 가 먼저 import 된 뒤 native booster library 가 학습을 시작하면 서로
   다른 OpenMP(`libomp`) 런타임 충돌로 segfault 가 날 수 있다. 기본 회귀 테스트와 같은
   프로세스에서 섞지 않고 별도 pytest 프로세스로 실행한다.
 - 검증 명령:
@@ -126,4 +138,5 @@ embedding 하나를 `dialogue_rnn.input_mode: multimodal` 로 학습하는 예�
   ```bash
   uv run python -m pytest -q
   uv run python -m pytest -q -m xgboost_native
+  uv run python -m pytest -q -m catboost_native
   ```

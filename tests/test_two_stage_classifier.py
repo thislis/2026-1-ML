@@ -11,7 +11,9 @@ from meld_emotion.config.schema import (
     ExperimentConfig,
     NearestCentroidConfig,
     SvmConfig,
+    SvmFourStageConfig,
     SvmMarginTwoStageConfig,
+    SvmTwoStageConfig,
     TwoStageConfig,
 )
 from meld_emotion.core.features import FeatureBundle, FeatureMatrix
@@ -24,7 +26,12 @@ from meld_emotion.core.types import (
     IntArray,
     Modality,
 )
-from meld_emotion.models.two_stage import SvmMarginTwoStageClassifier, TwoStageEmotionClassifier
+from meld_emotion.models.two_stage import (
+    SvmFourStageClassifier,
+    SvmMarginTwoStageClassifier,
+    SvmTwoStageClassifier,
+    TwoStageEmotionClassifier,
+)
 from meld_emotion.pipeline.builder import build_classifier, build_experiment
 
 
@@ -68,6 +75,17 @@ class _FixedEstimator:
 
     def decision_scores(self, x: FloatArray) -> FloatArray:
         return self._scores[: x.shape[0]]
+
+
+class _QueuedEstimatorFactory:
+    def __init__(self, *probas: FloatArray) -> None:
+        self._probas = list(probas)
+
+    def __call__(self, n_classes: int) -> _FixedEstimator:
+        proba = self._probas.pop(0)
+        assert proba.shape[1] == n_classes
+        scores = np.zeros_like(proba)
+        return _FixedEstimator(scores, proba)
 
 
 def _bundle(n: int) -> FeatureBundle:
@@ -251,6 +269,122 @@ def test_svm_margin_two_stage_dialogue_rnn_smoke() -> None:
     pytest.importorskip("torch", reason="PyTorch 미설치")
 
     result = build_experiment(_svm_margin_dialogue_config()).run()
+    assert result.evaluation.metric("accuracy") is not None
+
+
+def test_svm_two_stage_hard_routes_and_multiplies_conditional_probabilities() -> None:
+    stage1 = np.asarray([[0.80, 0.20], [0.20, 0.80]], dtype=np.float64)
+    stage2 = np.asarray(
+        [
+            [0.60, 0.10, 0.10, 0.10, 0.05, 0.05],
+            [0.10, 0.05, 0.70, 0.05, 0.05, 0.05],
+        ],
+        dtype=np.float64,
+    )
+    clf = SvmTwoStageClassifier(
+        _QueuedEstimatorFactory(stage1, stage2),
+        EMOTION_ORDER,
+    )
+    y = np.asarray([0, 1, 3], dtype=np.int64)
+    prediction = clf.fit(_bundle(3), y).predict(_bundle(2))
+
+    assert prediction.classes[prediction.y_pred[0]] == Emotion.NEUTRAL
+    assert prediction.classes[prediction.y_pred[1]] == Emotion.ANGER
+    assert prediction.proba.shape == (2, 7)
+    assert prediction.proba.sum(axis=1) == pytest.approx(np.ones(2))
+    assert prediction.proba[1, EMOTION_ORDER.index(Emotion.ANGER)] == pytest.approx(0.56)
+    assert clf.last_svm_stage_paths[1].stages == {"svm1": "non_neutral", "svm2": "anger"}
+    assert "SVM2 chose anger" in clf.last_two_stage_decisions[1].rationale
+
+
+def test_svm_four_stage_hard_routes_all_branches_and_combines_probabilities() -> None:
+    stage1 = np.asarray(
+        [[0.90, 0.10], [0.10, 0.90], [0.10, 0.90], [0.10, 0.90]],
+        dtype=np.float64,
+    )
+    stage2 = np.asarray(
+        [
+            [0.70, 0.10, 0.10, 0.10],
+            [0.70, 0.10, 0.10, 0.10],
+            [0.10, 0.10, 0.10, 0.70],
+            [0.10, 0.10, 0.10, 0.70],
+        ],
+        dtype=np.float64,
+    )
+    stage3 = np.asarray(
+        [[0.60, 0.40], [0.60, 0.40], [0.80, 0.20], [0.10, 0.90]],
+        dtype=np.float64,
+    )
+    stage4 = np.asarray(
+        [[0.50, 0.50], [0.50, 0.50], [0.50, 0.50], [0.20, 0.80]],
+        dtype=np.float64,
+    )
+    clf = SvmFourStageClassifier(
+        _QueuedEstimatorFactory(stage1, stage2, stage3, stage4),
+        EMOTION_ORDER,
+    )
+    y = np.asarray([0, 3, 2, 6, 5], dtype=np.int64)
+    prediction = clf.fit(_bundle(5), y).predict(_bundle(4))
+
+    predicted = tuple(prediction.classes[idx] for idx in prediction.y_pred)
+    assert predicted == (Emotion.NEUTRAL, Emotion.ANGER, Emotion.SADNESS, Emotion.FEAR)
+    assert prediction.proba.shape == (4, 7)
+    assert prediction.proba.sum(axis=1) == pytest.approx(np.ones(4))
+    assert prediction.proba[3, EMOTION_ORDER.index(Emotion.FEAR)] == pytest.approx(
+        0.90 * 0.70 * 0.90 * 0.80
+    )
+    assert clf.last_svm_stage_paths[3].stages == {
+        "svm1": "non_neutral",
+        "svm2": "else",
+        "svm3": "else",
+        "svm4": "fear",
+    }
+    assert "SVM4 chose fear" in clf.last_two_stage_decisions[3].rationale
+
+
+def test_svm_four_stage_sparse_stage_fallback_does_not_train_svc() -> None:
+    def fail_factory(n_classes: int) -> _FixedEstimator:
+        raise AssertionError(f"unexpected estimator creation for {n_classes} classes")
+
+    clf = SvmFourStageClassifier(fail_factory, EMOTION_ORDER)
+    prediction = clf.fit(_bundle(3), np.asarray([0, 0, 0], dtype=np.int64)).predict(_bundle(2))
+
+    assert tuple(prediction.classes[idx] for idx in prediction.y_pred) == (
+        Emotion.NEUTRAL,
+        Emotion.NEUTRAL,
+    )
+    assert prediction.proba.sum(axis=1) == pytest.approx(np.ones(2))
+
+
+def test_svm_hierarchy_configs_roundtrip_and_build() -> None:
+    two = SvmTwoStageConfig(stage=SvmConfig(C=2.0, kernel="linear"), use_concepts=False)
+    four = SvmFourStageConfig(stage=SvmConfig(C=0.5, kernel="rbf"), use_concepts=True)
+
+    assert to_dict(two)["type"] == "svm_two_stage"
+    assert from_dict({"name": "two", "model": to_dict(two)}).model == two
+    assert isinstance(build_classifier(two, EMOTION_ORDER), SvmTwoStageClassifier)
+
+    assert to_dict(four)["type"] == "svm_four_stage"
+    assert from_dict({"name": "four", "model": to_dict(four)}).model == four
+    assert isinstance(build_classifier(four, EMOTION_ORDER), SvmFourStageClassifier)
+
+
+def test_svm_two_stage_synthetic_smoke() -> None:
+    pytest.importorskip("sklearn", reason="scikit-learn 미설치")
+
+    result = build_experiment(
+        from_dict(
+            {
+                "name": "svm_two_stage_synthetic",
+                "dataset": {"type": "synthetic", "n_train": 80, "n_dev": 12, "n_test": 16},
+                "extractors": [{"type": "text_concepts"}, {"type": "text_bow", "n_features": 16}],
+                "model": {"type": "svm_two_stage", "stage": {"type": "svm"}},
+                "evaluation": {"metrics": ["accuracy"], "confusion": True, "scenarios": ["full"]},
+                "reporters": [],
+            }
+        )
+    ).run()
+
     assert result.evaluation.metric("accuracy") is not None
 
 

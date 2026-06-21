@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Self, cast
+from typing import Any, Self, cast
 
 import numpy as np
 
@@ -32,6 +32,16 @@ class TwoStageDecision:
     routed_to_stage2: bool = False
     stage1_model_label: Emotion | None = None
     stage1_confidence: float = 0.0
+
+
+@dataclass(frozen=True)
+class SvmStagePath:
+    """Detailed hard-routing trace for SVM-only hierarchical classifiers."""
+
+    uid: UID
+    stages: Mapping[str, str]
+    final_label: Emotion
+    final_probability: float
 
 
 @real
@@ -350,6 +360,466 @@ class SvmMarginTwoStageClassifier:
         )
 
 
+class _LocalStageClassifier:
+    """Train one local-label stage, with deterministic sparse-data fallback."""
+
+    def __init__(self, factory: Callable[[int], Estimator], labels: Sequence[str]) -> None:
+        if not labels:
+            raise ValueError("stage labels must not be empty")
+        self._labels = tuple(labels)
+        self._label_to_index = {label: idx for idx, label in enumerate(self._labels)}
+        self._model: Estimator | None = None
+        self._constant: str | None = None
+        self._uniform = False
+        self._factory = factory
+
+    @property
+    def labels(self) -> tuple[str, ...]:
+        return self._labels
+
+    def fit(self, x: FloatArray, y: Sequence[str]) -> Self:
+        values = tuple(y)
+        if not values:
+            self._model = None
+            self._constant = None
+            self._uniform = True
+            return self
+        unknown = sorted(set(values).difference(self._label_to_index))
+        if unknown:
+            raise ValueError(f"unknown local stage labels: {unknown!r}")
+        unique = tuple(dict.fromkeys(values))
+        if len(unique) == 1:
+            self._model = None
+            self._constant = unique[0]
+            self._uniform = False
+            return self
+        local_y = np.asarray([self._label_to_index[label] for label in values], dtype=np.int64)
+        self._model = self._factory(len(self._labels)).fit(x, local_y)
+        self._constant = None
+        self._uniform = False
+        return self
+
+    def predict_proba(self, x: FloatArray) -> FloatArray:
+        n_samples = x.shape[0]
+        n_labels = len(self._labels)
+        if n_samples == 0:
+            return np.zeros((0, n_labels), dtype=np.float64)
+        if self._uniform:
+            return np.full((n_samples, n_labels), 1.0 / n_labels, dtype=np.float64)
+        if self._constant is not None:
+            values = np.zeros((n_samples, n_labels), dtype=np.float64)
+            values[:, self._label_to_index[self._constant]] = 1.0
+            return values
+        if self._model is None:
+            raise RuntimeError("local stage classifier is not fitted")
+        return _normalize_rows(self._model.predict_proba(x), n_labels)
+
+    def __getstate__(self) -> dict[str, object]:
+        return {
+            "_labels": self._labels,
+            "_label_to_index": self._label_to_index,
+            "_model": self._model,
+            "_constant": self._constant,
+            "_uniform": self._uniform,
+        }
+
+    def __setstate__(self, state: dict[str, object]) -> None:
+        self._labels = cast(tuple[str, ...], state["_labels"])
+        self._label_to_index = cast(dict[str, int], state["_label_to_index"])
+        self._model = cast(Estimator | None, state["_model"])
+        self._constant = cast(str | None, state["_constant"])
+        self._uniform = bool(state["_uniform"])
+        self._factory = _restored_stage_factory
+
+
+def _restored_stage_factory(_: int) -> Any:
+    raise RuntimeError("artifact 로 복원한 SVM stage 는 재학습할 수 없습니다")
+
+
+@real
+class SvmTwoStageClassifier:
+    """Train separate SVMs for Neutral/Non-Neutral and non-neutral emotion."""
+
+    def __init__(
+        self,
+        stage_factory: Callable[[int], Estimator],
+        classes: tuple[Emotion, ...],
+        use_concepts: bool = True,
+        neutral_label: Emotion = Emotion.NEUTRAL,
+    ) -> None:
+        if neutral_label not in classes:
+            raise ValueError(f"neutral_label {neutral_label.value!r} is not in classifier classes")
+        self._classes = classes
+        self._use_concepts = use_concepts
+        self._neutral_label = neutral_label
+        self._stage1 = _LocalStageClassifier(stage_factory, ("neutral", "non_neutral"))
+        self._non_neutral_labels = tuple(
+            emotion.value for emotion in classes if emotion != neutral_label
+        )
+        self._stage2 = _LocalStageClassifier(stage_factory, self._non_neutral_labels)
+        self._last_decisions: tuple[TwoStageDecision, ...] = ()
+        self._last_paths: tuple[SvmStagePath, ...] = ()
+
+    @property
+    def classes(self) -> tuple[Emotion, ...]:
+        return self._classes
+
+    @property
+    def last_two_stage_decisions(self) -> tuple[TwoStageDecision, ...]:
+        return self._last_decisions
+
+    @property
+    def last_svm_stage_paths(self) -> tuple[SvmStagePath, ...]:
+        return self._last_paths
+
+    def fit(self, bundle: FeatureBundle, y: IntArray) -> Self:
+        design = self._design(bundle)
+        labels = tuple(self._classes[int(idx)] for idx in y)
+        stage1_y = tuple(
+            "neutral" if label == self._neutral_label else "non_neutral" for label in labels
+        )
+        non_neutral_mask = np.asarray(
+            [label != self._neutral_label for label in labels], dtype=np.bool_
+        )
+        stage2_y = tuple(label.value for label in labels if label != self._neutral_label)
+        self._stage1.fit(design, stage1_y)
+        self._stage2.fit(design[non_neutral_mask], stage2_y)
+        self._last_decisions = ()
+        self._last_paths = ()
+        return self
+
+    def predict_proba(self, bundle: FeatureBundle) -> FloatArray:
+        return self._route(bundle)[0]
+
+    def predict(self, bundle: FeatureBundle) -> PredictionSet:
+        proba, decisions, paths = self._route(bundle)
+        index = {emotion: idx for idx, emotion in enumerate(self._classes)}
+        y_pred = np.asarray([index[item.final_label] for item in decisions], dtype=np.int64)
+        self._last_decisions = decisions
+        self._last_paths = paths
+        return PredictionSet(uids=bundle.uids, y_pred=y_pred, proba=proba, classes=self._classes)
+
+    def stage_outputs(
+        self, bundle: FeatureBundle, proba: FloatArray | None = None
+    ) -> tuple[TwoStageDecision, ...]:
+        if proba is not None:
+            # SVM hard-routing is part of the explanation, so recompute from stages.
+            pass
+        _, decisions, paths = self._route(bundle)
+        self._last_decisions = decisions
+        self._last_paths = paths
+        return decisions
+
+    def _design(self, bundle: FeatureBundle) -> FloatArray:
+        if self._use_concepts:
+            return bundle.stack().values
+        return bundle.stack(kind=FeatureKind.EMBEDDING).values
+
+    def _route(
+        self, bundle: FeatureBundle
+    ) -> tuple[FloatArray, tuple[TwoStageDecision, ...], tuple[SvmStagePath, ...]]:
+        design = self._design(bundle)
+        stage1 = self._stage1.predict_proba(design)
+        stage2 = self._stage2.predict_proba(design)
+        neutral_idx = self._classes.index(self._neutral_label)
+        emotion_to_index = {emotion: idx for idx, emotion in enumerate(self._classes)}
+        label_to_emotion = {emotion.value: emotion for emotion in self._classes}
+        rows: list[FloatArray] = []
+        decisions: list[TwoStageDecision] = []
+        paths: list[SvmStagePath] = []
+        for row_idx, uid in enumerate(bundle.uids):
+            row = np.zeros(len(self._classes), dtype=np.float64)
+            neutral_probability = float(stage1[row_idx, 0])
+            non_neutral_probability = float(stage1[row_idx, 1])
+            row[neutral_idx] = neutral_probability
+            for local_idx, label in enumerate(self._non_neutral_labels):
+                emotion = label_to_emotion[label]
+                row[emotion_to_index[emotion]] = non_neutral_probability * float(
+                    stage2[row_idx, local_idx]
+                )
+            row = _normalize_vector(row)
+            stage1_label = self._stage1.labels[int(np.argmax(stage1[row_idx]))]
+            stage2_label_text = self._stage2.labels[int(np.argmax(stage2[row_idx]))]
+            stage2_emotion = label_to_emotion[stage2_label_text]
+            final_label = self._neutral_label if stage1_label == "neutral" else stage2_emotion
+            final_probability = float(row[emotion_to_index[final_label]])
+            path = SvmStagePath(
+                uid=uid,
+                stages={"svm1": stage1_label, "svm2": stage2_label_text},
+                final_label=final_label,
+                final_probability=final_probability,
+            )
+            rows.append(row)
+            paths.append(path)
+            decisions.append(
+                self._decision(
+                    uid=uid,
+                    row=row,
+                    neutral_idx=neutral_idx,
+                    stage1_label=stage1_label,
+                    stage2_label=stage2_emotion,
+                    final_label=final_label,
+                    final_probability=final_probability,
+                    path=path,
+                )
+            )
+        proba = np.vstack(rows).astype(np.float64) if rows else np.zeros((0, len(self._classes)))
+        return proba, tuple(decisions), tuple(paths)
+
+    def _decision(
+        self,
+        *,
+        uid: UID,
+        row: FloatArray,
+        neutral_idx: int,
+        stage1_label: str,
+        stage2_label: Emotion,
+        final_label: Emotion,
+        final_probability: float,
+        path: SvmStagePath,
+    ) -> TwoStageDecision:
+        emotion_scores = {
+            self._classes[idx]: float(row[idx])
+            for idx in range(len(self._classes))
+            if idx != neutral_idx
+        }
+        rationale = (
+            "SVM1 chose "
+            f"{path.stages['svm1']}; SVM2 chose {path.stages['svm2']}; "
+            f"final={final_label.value}."
+        )
+        return TwoStageDecision(
+            uid=uid,
+            neutral_probability=float(row[neutral_idx]),
+            non_neutral_probability=float(max(0.0, 1.0 - row[neutral_idx])),
+            stage1_label=stage1_label,
+            stage2_label=stage2_label,
+            final_label=final_label,
+            final_probability=final_probability,
+            emotion_scores=emotion_scores,
+            rationale=rationale,
+        )
+
+
+@real
+class SvmFourStageClassifier:
+    """Train the SVM1→SVM2→SVM3→SVM4 hierarchy from the project note."""
+
+    _DIRECT_STAGE2 = (Emotion.ANGER, Emotion.JOY, Emotion.SURPRISE)
+
+    def __init__(
+        self,
+        stage_factory: Callable[[int], Estimator],
+        classes: tuple[Emotion, ...],
+        use_concepts: bool = True,
+        neutral_label: Emotion = Emotion.NEUTRAL,
+    ) -> None:
+        if neutral_label not in classes:
+            raise ValueError(f"neutral_label {neutral_label.value!r} is not in classifier classes")
+        self._classes = classes
+        self._use_concepts = use_concepts
+        self._neutral_label = neutral_label
+        self._stage1 = _LocalStageClassifier(stage_factory, ("neutral", "non_neutral"))
+        self._stage2 = _LocalStageClassifier(
+            stage_factory,
+            (*tuple(emotion.value for emotion in self._DIRECT_STAGE2), "else"),
+        )
+        self._stage3 = _LocalStageClassifier(stage_factory, (Emotion.SADNESS.value, "else"))
+        self._stage4 = _LocalStageClassifier(
+            stage_factory, (Emotion.DISGUST.value, Emotion.FEAR.value)
+        )
+        self._last_decisions: tuple[TwoStageDecision, ...] = ()
+        self._last_paths: tuple[SvmStagePath, ...] = ()
+
+    @property
+    def classes(self) -> tuple[Emotion, ...]:
+        return self._classes
+
+    @property
+    def last_two_stage_decisions(self) -> tuple[TwoStageDecision, ...]:
+        return self._last_decisions
+
+    @property
+    def last_svm_stage_paths(self) -> tuple[SvmStagePath, ...]:
+        return self._last_paths
+
+    def fit(self, bundle: FeatureBundle, y: IntArray) -> Self:
+        design = self._design(bundle)
+        labels = tuple(self._classes[int(idx)] for idx in y)
+        stage1_y = tuple(
+            "neutral" if label == self._neutral_label else "non_neutral" for label in labels
+        )
+        stage2_mask = np.asarray(
+            [label != self._neutral_label for label in labels], dtype=np.bool_
+        )
+        stage2_y = tuple(self._stage2_label(label) for label in labels if label != self._neutral_label)
+        stage3_mask = np.asarray([self._goes_to_stage3(label) for label in labels], dtype=np.bool_)
+        stage3_y = tuple(self._stage3_label(label) for label in labels if self._goes_to_stage3(label))
+        stage4_mask = np.asarray([self._goes_to_stage4(label) for label in labels], dtype=np.bool_)
+        stage4_y = tuple(label.value for label in labels if self._goes_to_stage4(label))
+
+        self._stage1.fit(design, stage1_y)
+        self._stage2.fit(design[stage2_mask], stage2_y)
+        self._stage3.fit(design[stage3_mask], stage3_y)
+        self._stage4.fit(design[stage4_mask], stage4_y)
+        self._last_decisions = ()
+        self._last_paths = ()
+        return self
+
+    def predict_proba(self, bundle: FeatureBundle) -> FloatArray:
+        return self._route(bundle)[0]
+
+    def predict(self, bundle: FeatureBundle) -> PredictionSet:
+        proba, decisions, paths = self._route(bundle)
+        index = {emotion: idx for idx, emotion in enumerate(self._classes)}
+        y_pred = np.asarray([index[item.final_label] for item in decisions], dtype=np.int64)
+        self._last_decisions = decisions
+        self._last_paths = paths
+        return PredictionSet(uids=bundle.uids, y_pred=y_pred, proba=proba, classes=self._classes)
+
+    def stage_outputs(
+        self, bundle: FeatureBundle, proba: FloatArray | None = None
+    ) -> tuple[TwoStageDecision, ...]:
+        if proba is not None:
+            # SVM hard-routing is part of the explanation, so recompute from stages.
+            pass
+        _, decisions, paths = self._route(bundle)
+        self._last_decisions = decisions
+        self._last_paths = paths
+        return decisions
+
+    def _design(self, bundle: FeatureBundle) -> FloatArray:
+        if self._use_concepts:
+            return bundle.stack().values
+        return bundle.stack(kind=FeatureKind.EMBEDDING).values
+
+    def _route(
+        self, bundle: FeatureBundle
+    ) -> tuple[FloatArray, tuple[TwoStageDecision, ...], tuple[SvmStagePath, ...]]:
+        design = self._design(bundle)
+        stage1 = self._stage1.predict_proba(design)
+        stage2 = self._stage2.predict_proba(design)
+        stage3 = self._stage3.predict_proba(design)
+        stage4 = self._stage4.predict_proba(design)
+        neutral_idx = self._classes.index(self._neutral_label)
+        emotion_to_index = {emotion: idx for idx, emotion in enumerate(self._classes)}
+        rows: list[FloatArray] = []
+        decisions: list[TwoStageDecision] = []
+        paths: list[SvmStagePath] = []
+
+        for row_idx, uid in enumerate(bundle.uids):
+            row = np.zeros(len(self._classes), dtype=np.float64)
+            neutral_probability = float(stage1[row_idx, 0])
+            non_neutral_probability = float(stage1[row_idx, 1])
+            row[neutral_idx] = neutral_probability
+
+            for local_idx, emotion in enumerate(self._DIRECT_STAGE2):
+                row[emotion_to_index[emotion]] = non_neutral_probability * float(
+                    stage2[row_idx, local_idx]
+                )
+            stage2_else = non_neutral_probability * float(stage2[row_idx, 3])
+            row[emotion_to_index[Emotion.SADNESS]] = stage2_else * float(stage3[row_idx, 0])
+            stage3_else = stage2_else * float(stage3[row_idx, 1])
+            row[emotion_to_index[Emotion.DISGUST]] = stage3_else * float(stage4[row_idx, 0])
+            row[emotion_to_index[Emotion.FEAR]] = stage3_else * float(stage4[row_idx, 1])
+            row = _normalize_vector(row)
+
+            stage1_label = self._stage1.labels[int(np.argmax(stage1[row_idx]))]
+            stage2_label = self._stage2.labels[int(np.argmax(stage2[row_idx]))]
+            stage3_label = self._stage3.labels[int(np.argmax(stage3[row_idx]))]
+            stage4_label = self._stage4.labels[int(np.argmax(stage4[row_idx]))]
+            final_label = self._final_label(stage1_label, stage2_label, stage3_label, stage4_label)
+            final_probability = float(row[emotion_to_index[final_label]])
+            path = SvmStagePath(
+                uid=uid,
+                stages={
+                    "svm1": stage1_label,
+                    "svm2": stage2_label,
+                    "svm3": stage3_label,
+                    "svm4": stage4_label,
+                },
+                final_label=final_label,
+                final_probability=final_probability,
+            )
+            rows.append(row)
+            paths.append(path)
+            decisions.append(
+                self._decision(
+                    uid=uid,
+                    row=row,
+                    neutral_idx=neutral_idx,
+                    stage1_label=stage1_label,
+                    final_label=final_label,
+                    final_probability=final_probability,
+                    path=path,
+                )
+            )
+        proba = np.vstack(rows).astype(np.float64) if rows else np.zeros((0, len(self._classes)))
+        return proba, tuple(decisions), tuple(paths)
+
+    def _stage2_label(self, label: Emotion) -> str:
+        if label in self._DIRECT_STAGE2:
+            return label.value
+        return "else"
+
+    def _stage3_label(self, label: Emotion) -> str:
+        if label == Emotion.SADNESS:
+            return Emotion.SADNESS.value
+        return "else"
+
+    def _goes_to_stage3(self, label: Emotion) -> bool:
+        return label not in (self._neutral_label, *self._DIRECT_STAGE2)
+
+    def _goes_to_stage4(self, label: Emotion) -> bool:
+        return label in (Emotion.DISGUST, Emotion.FEAR)
+
+    def _final_label(
+        self, stage1_label: str, stage2_label: str, stage3_label: str, stage4_label: str
+    ) -> Emotion:
+        if stage1_label == "neutral":
+            return self._neutral_label
+        if stage2_label != "else":
+            return Emotion(stage2_label)
+        if stage3_label == Emotion.SADNESS.value:
+            return Emotion.SADNESS
+        return Emotion(stage4_label)
+
+    def _decision(
+        self,
+        *,
+        uid: UID,
+        row: FloatArray,
+        neutral_idx: int,
+        stage1_label: str,
+        final_label: Emotion,
+        final_probability: float,
+        path: SvmStagePath,
+    ) -> TwoStageDecision:
+        emotion_scores = {
+            self._classes[idx]: float(row[idx])
+            for idx in range(len(self._classes))
+            if idx != neutral_idx
+        }
+        best_non_neutral_idx = max(emotion_scores, key=lambda emotion: emotion_scores[emotion])
+        rationale = (
+            "SVM1 chose "
+            f"{path.stages['svm1']}; SVM2 chose {path.stages['svm2']}; "
+            f"SVM3 chose {path.stages['svm3']}; SVM4 chose {path.stages['svm4']}; "
+            f"final={final_label.value}."
+        )
+        return TwoStageDecision(
+            uid=uid,
+            neutral_probability=float(row[neutral_idx]),
+            non_neutral_probability=float(max(0.0, 1.0 - row[neutral_idx])),
+            stage1_label=stage1_label,
+            stage2_label=best_non_neutral_idx,
+            final_label=final_label,
+            final_probability=final_probability,
+            emotion_scores=emotion_scores,
+            rationale=rationale,
+        )
+
+
 def _normalize_rows(values: FloatArray, n_classes: int) -> FloatArray:
     proba = np.asarray(values, dtype=np.float64)
     if proba.ndim != 2 or proba.shape[1] != n_classes:
@@ -360,6 +830,14 @@ def _normalize_rows(values: FloatArray, n_classes: int) -> FloatArray:
     if np.any(empty):
         normalized[empty] = 1.0 / n_classes
     return cast(FloatArray, normalized.astype(np.float64))
+
+
+def _normalize_vector(values: FloatArray) -> FloatArray:
+    row = np.asarray(values, dtype=np.float64)
+    total = float(row.sum())
+    if total <= 0.0:
+        return cast(FloatArray, np.full(row.shape, 1.0 / row.size, dtype=np.float64))
+    return cast(FloatArray, (row / total).astype(np.float64))
 
 
 def _top_margin(scores: FloatArray) -> float:

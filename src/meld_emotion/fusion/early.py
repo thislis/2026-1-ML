@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Self
+from typing import Any, Self, cast
 
 import numpy as np
 
@@ -58,3 +58,20 @@ class EarlyFusionClassifier:
         proba = self.predict_proba(bundle)
         y_pred = np.argmax(proba, axis=1).astype(np.int64)
         return PredictionSet(uids=bundle.uids, y_pred=y_pred, proba=proba, classes=self._classes)
+
+    def __getstate__(self) -> dict[str, object]:
+        return {
+            "_classes": self._classes,
+            "_use_concepts": self._use_concepts,
+            "_estimator": self._estimator,
+        }
+
+    def __setstate__(self, state: dict[str, object]) -> None:
+        self._classes = cast(tuple[Emotion, ...], state["_classes"])
+        self._use_concepts = bool(state["_use_concepts"])
+        self._estimator = cast(Estimator | None, state["_estimator"])
+        self._factory = _restored_factory
+
+
+def _restored_factory(_: int) -> Any:
+    raise RuntimeError("artifact 로 복원한 EarlyFusionClassifier 는 재학습할 수 없습니다")

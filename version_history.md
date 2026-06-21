@@ -1,5 +1,114 @@
 # Version History
 
+## ours_v3
+
+`ours_v3` 는 `ours_v3pre` 의 RNN based 최종 경로를 그대로 확정하지 않고, 최종 제출/사용 모델을
+**SVM 기반 모델**로 바꾼 버전이다. `ours_v3pre` 에서는 Jina Omni fused multimodal embedding 을
+`dialogue_rnn.input_mode: multimodal` 로 넣어 dialogue context/memory 를 학습하는 방향을 열었지만,
+현재 실험 기준으로는 RNN 계열보다 SVM 쪽 성능이 더 잘 나와 최종 모델을 SVM으로 정리했다.
+
+현재 코드 기준 구현 상태는 `uv run meld-emotion status` 로 확인한다. 이 문서를 갱신한 시점의
+상태는 전체 72개 컴포넌트 중 REAL 65개, PLACEHOLDER 7개, UNIMPLEMENTED 0개다. `ours_v3pre`
+대비 SVM 관련 실제 구현/운영 경로가 강화되어 `models.two_stage.SvmTwoStageClassifier`,
+`models.two_stage.SvmFourStageClassifier`, 저장된 classifier artifact 기반 inference, SVM batch
+inference/XAI 경로가 현재 작업트리에 포함되어 있다. 기존 placeholder 경계는 TF-IDF, sentence
+embedding, MFCC, visual cue, stacking combiner, disk cache, dashboard HTML rendering 으로 유지된다.
+
+### v3pre에서 v3로 바뀐 최종 판단
+
+- 최종 모델 선택: `dialogue_rnn` 기반 모델 대신 `early` fusion + `svm` 을 최종 성능 기준 모델로
+  사용한다.
+- 성능 판단: RNN 계열은 멀티모달 encoder, gated fusion, dialogue context, memory attention 을
+  추가로 학습하지만, MELD 규모와 class imbalance 에 비해 trainable block 이 많아 성능 이득이
+  안정적으로 나오지 않았다.
+- SVM 선택 이유: EmbeddingGemma, Wav2Vec2 XLS-R, TimeSformer/Jina Omni 같은 embedding 모델이
+  이미 원 입력의 중요한 정보를 잘 보존한 채 고정 길이 벡터로 압축한다. 그 벡터를 다시 RNN/fusion
+  구조로 재압축하는 방식보다, SVM이 embedding 공간에서 margin 기반 결정경계를 직접 찾는 방식이
+  현재 feature 특성에 더 잘 맞았다고 추정한다.
+- 해석 관점: RNN based 모델은 발화 내부 sequence/context 를 활용할 수 있다는 장점이 있지만,
+  pooled/fused embedding 실험에서는 추가 context 학습이 오히려 노이즈나 과적합을 만들 수 있다.
+  반면 SVM은 frozen 또는 fine-tuned foundation embedding 위에서 비교적 작은 파라미터 수로
+  안정적인 분리면을 학습한다.
+
+### 대표 v3 설정
+
+현재 작업트리에서 최종 SVM 실험 템플릿에 가장 가까운 설정은 다음이다.
+
+```bash
+/Users/safeailab_macmini/Desktop/2026-1-ML/configs/test/finetuned_embeddinggemma_finetuned_wav2vec2_original_timesformer_svm.yaml
+```
+
+재현 명령은 프로젝트 루트에서 실행한다.
+
+```bash
+cd /Users/safeailab_macmini/Desktop/2026-1-ML
+uv sync --extra text --extra audio --extra video
+uv run meld-emotion run --config configs/test/finetuned_embeddinggemma_finetuned_wav2vec2_original_timesformer_svm.yaml
+```
+
+이 설정은 fine-tuned EmbeddingGemma 텍스트 임베딩, fine-tuned Wav2Vec2 XLS-R 오디오 임베딩,
+original TimeSformer 비디오 임베딩을 추출한 뒤 `early` fusion classifier 의 `base` 로 SVM을 쓴다.
+
+```yaml
+model:
+  type: early
+  artifact_path: outputs/finetuned_embeddinggemma_finetuned_wav2vec2_original_timesformer_svm.pkl
+  base:
+    type: svm
+    C: 1.0
+    kernel: rbf
+  use_concepts: false
+```
+
+학습이 끝나면 classifier artifact 가 `.pkl` 로 저장되며, 단일 샘플 추론과 SVM XAI 는 다음처럼
+실행한다.
+
+```bash
+uv run meld-emotion infer --mp4 sample.mp4 --text "I am so happy!" \
+  --checkpoint outputs/finetuned_embeddinggemma_finetuned_wav2vec2_original_timesformer_svm.pkl \
+  --xai --json
+```
+
+MELD test split 전체에 대해 저장된 SVM artifact 로 추론과 XAI 를 만들 때는 `infer-svm-batch` 를
+사용한다.
+
+```bash
+uv run meld-emotion infer-svm-batch \
+  --csv MELD.Raw/test_sent_emo.csv \
+  --mp4-dir MELD.Raw/output_repeated_splits_test \
+  --checkpoint outputs/finetuned_embeddinggemma_finetuned_wav2vec2_original_timesformer_svm.pkl
+```
+
+### v3 구현 기준
+
+README 기준으로 구현은 기존 파이프라인 구조를 유지한다. 새 최종 모델을 별도 특수 케이스로
+우회하지 않고, `SvmConfig` → `SvmEstimator` → `EarlyFusionClassifier` → `ExperimentRunner` 의
+일반 경로에 태운다. 저장/추론은 `model.artifact_path` 로 학습된 classifier artifact 를 남기고,
+`meld_emotion.inference` 와 `meld_emotion.inference_svm_batch` 가 같은 extractor/media 설정을
+복원해 사용한다.
+
+관련 코드 경로는 다음과 같다.
+
+- SVM estimator: `src/meld_emotion/models/sklearn_estimators.py`
+- SVM hierarchy/wrapper: `src/meld_emotion/models/two_stage.py`
+- 설정 schema: `src/meld_emotion/config/schema.py`
+- 객체 생성 registry/builder: `src/meld_emotion/pipeline/builder.py`
+- 단일 inference + SVM XAI: `src/meld_emotion/inference.py`
+- MELD split batch inference: `src/meld_emotion/inference_svm_batch.py`
+- CLI entrypoint: `src/meld_emotion/cli.py`
+
+### v3의 남은 후보
+
+- SVM, `dialogue_rnn`, Jina Omni SVM, fine-tuned tri-modal SVM 결과를 같은 suite 형식으로 정리한
+  최종 비교표 고정.
+- SVM hyperparameter search: `C`, `kernel`, class weight, modality 조합, fine-tuned/original
+  extractor 조합 비교.
+- SVM 계층형 모델(`svm_two_stage`, `svm_four_stage`)이 단일 7-class SVM보다 실제 MELD test 에서
+  나은지 정량 검증.
+- SVM XAI 결과를 case-study dashboard 로 렌더링하는 HTML/UI 구현.
+- 실행 간 feature 재사용을 위한 `DiskFeatureCache` 실제 구현. fine-tuned embedding + video
+  extractor 조합은 비용이 크므로 v3 이후에도 우선순위가 높다.
+
 ## ours_v3pre
 
 `ours_v3pre` 는 `ours_v2.5` 의 tri-modal raw/sequence pipeline 위에 **fused multimodal
