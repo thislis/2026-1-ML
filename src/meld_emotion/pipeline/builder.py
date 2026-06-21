@@ -554,6 +554,8 @@ def build_experiment(
             "output_dir": config.output_dir,
             "config_snapshot": json.dumps(to_dict(config), ensure_ascii=False, sort_keys=True),
         },
+        artifact_path=config.model.artifact_path,
+        artifact_config=to_dict(config),
     )
     logger.info(
         "실험 구성 완료: name=%s metrics=%s scenarios=%s reporters=%d",

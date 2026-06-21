@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Self, cast
+from typing import Any, Self, cast
 
 import numpy as np
 
@@ -413,6 +413,27 @@ class _LocalStageClassifier:
         if self._model is None:
             raise RuntimeError("local stage classifier is not fitted")
         return _normalize_rows(self._model.predict_proba(x), n_labels)
+
+    def __getstate__(self) -> dict[str, object]:
+        return {
+            "_labels": self._labels,
+            "_label_to_index": self._label_to_index,
+            "_model": self._model,
+            "_constant": self._constant,
+            "_uniform": self._uniform,
+        }
+
+    def __setstate__(self, state: dict[str, object]) -> None:
+        self._labels = cast(tuple[str, ...], state["_labels"])
+        self._label_to_index = cast(dict[str, int], state["_label_to_index"])
+        self._model = cast(Estimator | None, state["_model"])
+        self._constant = cast(str | None, state["_constant"])
+        self._uniform = bool(state["_uniform"])
+        self._factory = _restored_stage_factory
+
+
+def _restored_stage_factory(_: int) -> Any:
+    raise RuntimeError("artifact 로 복원한 SVM stage 는 재학습할 수 없습니다")
 
 
 @real

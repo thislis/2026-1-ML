@@ -12,9 +12,12 @@ from importlib import import_module
 from pathlib import Path
 from typing import Any, Protocol, cast
 
+import numpy as np
+
 from meld_emotion.core.types import EMOTION_ORDER, Emotion
 
 EMOTION_LABELS: tuple[str, ...] = tuple(emotion.value for emotion in EMOTION_ORDER)
+EARLY_STOPPING_METRICS = frozenset(("none", "eval_loss", "eval_macro_f1", "eval_weighted_f1"))
 _LABEL_TO_ID = {label: index for index, label in enumerate(EMOTION_LABELS)}
 _REQUIRED_COLUMNS = frozenset(("Utterance", "Emotion"))
 
@@ -38,6 +41,14 @@ class _TrainingArgumentsClass(Protocol):
 
 class _LossClass(Protocol):
     def __call__(self, model: object) -> object: ...
+
+
+class _EarlyStoppingCallbackClass(Protocol):
+    def __call__(
+        self,
+        early_stopping_patience: int,
+        early_stopping_threshold: float = 0.0,
+    ) -> object: ...
 
 
 @dataclass(frozen=True)
@@ -77,6 +88,10 @@ class EmbeddingGemmaFineTuneConfig:
     bf16: bool = False
     max_steps: int | None = None
     save_total_limit: int = 2
+    eval_steps: int = 100
+    early_stopping_metric: str = "eval_loss"
+    early_stopping_patience: int = 3
+    early_stopping_threshold: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -102,6 +117,10 @@ class FineTuneSummary:
     fp16: bool
     bf16: bool
     max_steps: int | None
+    eval_steps: int
+    early_stopping_metric: str
+    early_stopping_patience: int
+    early_stopping_threshold: float
 
 
 @dataclass(frozen=True)
@@ -112,6 +131,49 @@ class _TrainingDependencies:
     training_arguments_cls: _TrainingArgumentsClass
     batch_all_triplet_loss_cls: _LossClass
     batch_samplers_cls: Any
+    early_stopping_callback_cls: _EarlyStoppingCallbackClass
+
+
+class MeldCentroidF1Evaluator:
+    """Evaluate emotion separability with nearest-centroid F1 on frozen embeddings."""
+
+    def __init__(
+        self,
+        train_examples: Sequence[MeldEmotionExample],
+        eval_examples: Sequence[MeldEmotionExample],
+        metric_name: str,
+        batch_size: int,
+    ) -> None:
+        if metric_name not in {"macro_f1", "weighted_f1"}:
+            raise ValueError("metric_name 은 macro_f1 또는 weighted_f1 이어야 합니다")
+        if not eval_examples:
+            raise ValueError("F1 evaluator 는 eval_examples 가 필요합니다")
+        self._train_sentences = tuple(example.sentence for example in train_examples)
+        self._train_labels = np.asarray([example.label for example in train_examples], dtype=np.int64)
+        self._eval_sentences = tuple(example.sentence for example in eval_examples)
+        self._eval_labels = np.asarray([example.label for example in eval_examples], dtype=np.int64)
+        self._batch_size = batch_size
+        self.primary_metric = metric_name
+        self.greater_is_better = True
+
+    def __call__(
+        self,
+        model: object,
+        output_path: str | None = None,
+        epoch: int = -1,
+        steps: int = -1,
+    ) -> dict[str, float]:
+        del output_path, epoch, steps
+        train_embeddings = _encode_sentences(model, self._train_sentences, self._batch_size)
+        eval_embeddings = _encode_sentences(model, self._eval_sentences, self._batch_size)
+        predictions = _nearest_centroid_predictions(train_embeddings, self._train_labels, eval_embeddings)
+        macro_f1, weighted_f1 = _macro_weighted_f1(self._eval_labels, predictions, len(EMOTION_LABELS))
+        accuracy = float(np.mean(predictions == self._eval_labels)) if len(self._eval_labels) else 0.0
+        return {
+            "macro_f1": macro_f1,
+            "weighted_f1": weighted_f1,
+            "accuracy": accuracy,
+        }
 
 
 def load_meld_emotion_examples(csv_path: str | Path) -> tuple[MeldEmotionExample, ...]:
@@ -211,6 +273,8 @@ def run_embeddinggemma_fine_tuning(
     eval_dataset = (
         _dataset_from_indices(dependencies.dataset_cls, examples, split.eval) if split.eval else None
     )
+    train_examples = tuple(examples[index] for index in split.train)
+    eval_examples = tuple(examples[index] for index in split.eval)
 
     model_kwargs: dict[str, object] = {}
     if config.device != "auto":
@@ -219,6 +283,16 @@ def run_embeddinggemma_fine_tuning(
     loss = dependencies.batch_all_triplet_loss_cls(model)
 
     config.output_dir.mkdir(parents=True, exist_ok=True)
+    callbacks: list[object] = []
+    if config.early_stopping_metric != "none":
+        callbacks.append(
+            dependencies.early_stopping_callback_cls(
+                early_stopping_patience=config.early_stopping_patience,
+                early_stopping_threshold=config.early_stopping_threshold,
+            )
+        )
+    evaluator = _build_f1_evaluator(config, train_examples, eval_examples)
+    should_load_best_model = config.early_stopping_metric != "none"
     args = dependencies.training_arguments_cls(
         output_dir=str(config.output_dir),
         num_train_epochs=config.epochs,
@@ -230,10 +304,19 @@ def run_embeddinggemma_fine_tuning(
         bf16=config.bf16,
         eval_strategy="steps" if eval_dataset is not None else "no",
         save_strategy="steps",
+        eval_steps=config.eval_steps,
+        save_steps=config.eval_steps,
         save_total_limit=config.save_total_limit,
         logging_steps=50,
         max_steps=config.max_steps if config.max_steps is not None else -1,
         batch_sampler=dependencies.batch_samplers_cls.GROUP_BY_LABEL,
+        load_best_model_at_end=should_load_best_model,
+        metric_for_best_model=(
+            config.early_stopping_metric if should_load_best_model else None
+        ),
+        greater_is_better=(
+            config.early_stopping_metric != "eval_loss" if should_load_best_model else None
+        ),
         seed=config.seed,
         data_seed=config.seed,
     )
@@ -243,6 +326,8 @@ def run_embeddinggemma_fine_tuning(
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         loss=loss,
+        evaluator=[evaluator] if evaluator is not None else None,
+        callbacks=callbacks,
     )
     trainer.train()
 
@@ -272,8 +357,19 @@ def _validate_config(config: EmbeddingGemmaFineTuneConfig) -> None:
         raise ValueError("max_steps 는 양수이거나 None 이어야 합니다")
     if config.save_total_limit <= 0:
         raise ValueError("save_total_limit 는 양수여야 합니다")
+    if config.eval_steps <= 0:
+        raise ValueError("eval_steps 는 양수여야 합니다")
     if config.device not in {"auto", "cpu", "mps", "cuda"}:
         raise ValueError("device 는 auto/cpu/mps/cuda 중 하나여야 합니다")
+    if config.early_stopping_metric not in EARLY_STOPPING_METRICS:
+        allowed = ", ".join(sorted(EARLY_STOPPING_METRICS))
+        raise ValueError(f"early_stopping_metric 은 {allowed} 중 하나여야 합니다")
+    if config.early_stopping_patience <= 0:
+        raise ValueError("early_stopping_patience 는 양수여야 합니다")
+    if config.early_stopping_threshold < 0.0:
+        raise ValueError("early_stopping_threshold 는 0 이상이어야 합니다")
+    if config.early_stopping_metric != "none" and config.eval_fraction <= 0.0:
+        raise ValueError("early stopping 을 사용하려면 eval_fraction 이 0보다 커야 합니다")
 
 
 def _dataset_from_indices(
@@ -315,6 +411,7 @@ def _load_training_dependencies() -> _TrainingDependencies:
         "sentence_transformers.training_args",
     )
 
+    early_stopping_callback_cls = _load_early_stopping_callback_class()
     try:
         dataset_cls = datasets_module.__dict__["Dataset"]
         sentence_transformer_cls = sentence_transformers_module.__dict__["SentenceTransformer"]
@@ -338,7 +435,37 @@ def _load_training_dependencies() -> _TrainingDependencies:
         training_arguments_cls=cast(_TrainingArgumentsClass, training_arguments_cls),
         batch_all_triplet_loss_cls=cast(_LossClass, batch_all_triplet_loss_cls),
         batch_samplers_cls=batch_samplers_cls,
+        early_stopping_callback_cls=cast(_EarlyStoppingCallbackClass, early_stopping_callback_cls),
     )
+
+
+def _load_early_stopping_callback_class() -> object:
+    """Load transformers EarlyStoppingCallback across re-export differences."""
+
+    try:
+        transformers_module = import_module("transformers")
+    except ImportError as exc:
+        raise ImportError(
+            "EmbeddingGemma fine-tuning requires transformers. "
+            "Install it with `uv sync --extra text`."
+        ) from exc
+    callback = transformers_module.__dict__.get("EarlyStoppingCallback")
+    if callback is not None:
+        return callback
+
+    try:
+        callback_module = import_module("transformers.trainer_callback")
+    except ImportError as exc:
+        raise ImportError(
+            "EmbeddingGemma fine-tuning requires transformers EarlyStoppingCallback. "
+            "Install a compatible transformers version with `uv sync --extra text`."
+        ) from exc
+    try:
+        return callback_module.__dict__["EarlyStoppingCallback"]
+    except KeyError as exc:
+        raise ImportError(
+            "The installed transformers package does not expose EarlyStoppingCallback."
+        ) from exc
 
 
 def _import_first(*module_names: str) -> Any:
@@ -379,8 +506,109 @@ def _build_summary(
         fp16=config.fp16,
         bf16=config.bf16,
         max_steps=config.max_steps,
+        eval_steps=config.eval_steps,
+        early_stopping_metric=config.early_stopping_metric,
+        early_stopping_patience=config.early_stopping_patience,
+        early_stopping_threshold=config.early_stopping_threshold,
     )
 
 
 def _write_summary(path: Path, summary: FineTuneSummary) -> None:
     path.write_text(json.dumps(asdict(summary), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _build_f1_evaluator(
+    config: EmbeddingGemmaFineTuneConfig,
+    train_examples: Sequence[MeldEmotionExample],
+    eval_examples: Sequence[MeldEmotionExample],
+) -> MeldCentroidF1Evaluator | None:
+    metric_names = {
+        "eval_macro_f1": "macro_f1",
+        "eval_weighted_f1": "weighted_f1",
+    }
+    metric_name = metric_names.get(config.early_stopping_metric)
+    if metric_name is None:
+        return None
+    return MeldCentroidF1Evaluator(
+        train_examples=train_examples,
+        eval_examples=eval_examples,
+        metric_name=metric_name,
+        batch_size=config.batch_size,
+    )
+
+
+def _encode_sentences(
+    model: object,
+    sentences: Sequence[str],
+    batch_size: int,
+) -> np.ndarray:
+    encode = getattr(model, "encode", None)
+    if encode is None:
+        raise TypeError("F1 evaluator requires a SentenceTransformer-like model with encode()")
+    encoded = encode(
+        list(sentences),
+        batch_size=batch_size,
+        convert_to_numpy=True,
+        normalize_embeddings=True,
+        show_progress_bar=False,
+    )
+    values = np.asarray(encoded, dtype=np.float64)
+    if values.ndim != 2 or values.shape[0] != len(sentences):
+        raise ValueError(
+            "Sentence embedding 출력 형식이 올바르지 않습니다: "
+            f"shape={values.shape}, n_sentences={len(sentences)}"
+        )
+    return values
+
+
+def _nearest_centroid_predictions(
+    train_embeddings: np.ndarray,
+    train_labels: np.ndarray,
+    eval_embeddings: np.ndarray,
+) -> np.ndarray:
+    centroids: list[np.ndarray] = []
+    for label in range(len(EMOTION_LABELS)):
+        mask = train_labels == label
+        if not np.any(mask):
+            raise ValueError(f"centroid 를 계산할 train 예제가 없습니다: label={EMOTION_LABELS[label]}")
+        centroid = train_embeddings[mask].mean(axis=0)
+        norm = np.linalg.norm(centroid)
+        centroids.append(centroid / norm if norm > 0 else centroid)
+    centroid_matrix = np.vstack(centroids)
+    eval_norms = np.linalg.norm(eval_embeddings, axis=1, keepdims=True)
+    normalized_eval = np.divide(
+        eval_embeddings,
+        eval_norms,
+        out=np.zeros_like(eval_embeddings),
+        where=eval_norms > 0,
+    )
+    scores = normalized_eval @ centroid_matrix.T
+    return np.asarray(np.argmax(scores, axis=1), dtype=np.int64)
+
+
+def _macro_weighted_f1(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    n_classes: int,
+) -> tuple[float, float]:
+    f1_scores: list[float] = []
+    supports: list[int] = []
+    for label in range(n_classes):
+        true_mask = y_true == label
+        pred_mask = y_pred == label
+        tp = int(np.sum(true_mask & pred_mask))
+        fp = int(np.sum(~true_mask & pred_mask))
+        fn = int(np.sum(true_mask & ~pred_mask))
+        precision = tp / (tp + fp) if tp + fp > 0 else 0.0
+        recall = tp / (tp + fn) if tp + fn > 0 else 0.0
+        f1 = 2.0 * precision * recall / (precision + recall) if precision + recall > 0 else 0.0
+        f1_scores.append(f1)
+        supports.append(int(np.sum(true_mask)))
+    macro_f1 = float(np.mean(f1_scores)) if f1_scores else 0.0
+    total = sum(supports)
+    weighted_f1 = (
+        float(sum(score * support for score, support in zip(f1_scores, supports, strict=True)) / total)
+        if total > 0
+        else 0.0
+    )
+    return macro_f1, weighted_f1

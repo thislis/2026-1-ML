@@ -388,6 +388,7 @@ for _cb in (MeanCombinerConfig, WeightedCombinerConfig, StackingCombinerConfig):
 @dataclass(frozen=True)
 class ModelConfig:
     type: ClassVar[str] = "base"
+    artifact_path: str | None = None
 
 
 @dataclass(frozen=True)

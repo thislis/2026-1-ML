@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Self
+from typing import Any, Self, cast
 
 import numpy as np
 
@@ -74,3 +74,20 @@ class LateFusionClassifier:
         proba = self.predict_proba(bundle)
         y_pred = np.argmax(proba, axis=1).astype(np.int64)
         return PredictionSet(uids=bundle.uids, y_pred=y_pred, proba=proba, classes=self._classes)
+
+    def __getstate__(self) -> dict[str, object]:
+        return {
+            "_combiner": self._combiner,
+            "_classes": self._classes,
+            "_estimators": self._estimators,
+        }
+
+    def __setstate__(self, state: dict[str, object]) -> None:
+        self._factory = _restored_factory
+        self._combiner = cast(ProbabilityCombiner, state["_combiner"])
+        self._classes = cast(tuple[Emotion, ...], state["_classes"])
+        self._estimators = cast(dict[Modality, Estimator], state["_estimators"])
+
+
+def _restored_factory(_: int) -> Any:
+    raise RuntimeError("artifact 로 복원한 LateFusionClassifier 는 재학습할 수 없습니다")
